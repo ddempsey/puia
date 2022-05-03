@@ -1,6 +1,7 @@
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
-from whakaari import TremorData, ForecastModel, load_dataframe, datetimeify
+from puia.data import TremorData, Data
+from puia.utilities import datetimeify
 from datetime import timedelta, datetime
 from matplotlib import pyplot as plt
 import numpy as np
@@ -22,34 +23,6 @@ warnings.filterwarnings("ignore", category=FitFailedWarning)
 # constants
 month = timedelta(days=365.25/12)
 day = timedelta(days=1)
-
-def datetimeify(t):
-    """ Return datetime object corresponding to input string.
-
-        Parameters:
-        -----------
-        t : str, datetime.datetime
-            Date string to convert to datetime object.
-
-        Returns:
-        --------
-        datetime : datetime.datetime
-            Datetime object corresponding to input string.
-
-        Notes:
-        ------
-        This function tries several datetime string formats, and raises a ValueError if none work.
-    """
-    from pandas._libs.tslibs.timestamps import Timestamp
-    if type(t) in [datetime, Timestamp]:
-        return t
-    fmts = ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%Y %m %d %H %M %S',]
-    for fmt in fmts:
-        try:
-            return datetime.strptime(t, fmt)
-        except ValueError:
-            pass
-    raise ValueError("time data '{:s}' not a recognized format".format(t))
 
 def import_data():
     if False: # plot raw vel data
@@ -160,7 +133,29 @@ def corr_ana_feat():
     # create a pandas dataframe for each feature where the columns are the eruptions consider
     pass # under developement 
     
+def ruapehu_2009():
+    
+    Td=Data(station='RU001', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    Td.df
+    td=TremorData(station='FWVZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    
+    f,ax=plt.subplots(1,1)
+    te=td.tes[2]
+    te=datetimeify('2016-11-13 11:00:00')
+    t0,t1=[te-5*day,te+day]
+    inds=(td.df.index>t0)&(td.df.index<t1)
+    ax.plot(td.df.index[inds], td.df['rsamF'][inds],'k-')
+    ax.plot(td.df.index[inds], td.df['rsam'][inds],'k-',alpha=0.5)
+    ax.axvline(te,color='r',linestyle=':')
+    
+    ax_=ax.twinx()
+    inds=(Td.df.index>t0)&(Td.df.index<t1)
+    ax_.plot(Td.df.index[inds], Td.df[' t (C)'][inds],'g-')
+    
+    plt.show()
+
 if __name__ == "__main__":
+    ruapehu_2009()
     #import_data()
-    data_Q_assesment()
+    #data_Q_assesment()
     #calc_feature_pre_erup()
