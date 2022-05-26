@@ -16,8 +16,6 @@ git clone https://github.com/ddempsey/puia
 ```bash
 cd puia
 
-git checkout transfer-learning
-
 conda env create -f environment.yml
 
 conda activate puia

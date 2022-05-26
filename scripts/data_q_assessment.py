@@ -1,7 +1,7 @@
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
-from puia.data import TremorData, Data
-from puia.utilities import datetimeify
+from puia.data import TremorData, Data, Station, repair_dataframe
+from puia.utilities import *
 from datetime import timedelta, datetime
 from matplotlib import pyplot as plt
 import numpy as np
@@ -19,6 +19,7 @@ from sklearn.exceptions import FitFailedWarning
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=FitFailedWarning)
+from obspy.signal.filter import bandpass
 
 # constants
 month = timedelta(days=365.25/12)
@@ -135,27 +136,189 @@ def corr_ana_feat():
     
 def ruapehu_2009():
     
-    Td=Data(station='RU001', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
-    Td.df
+    tes=['2021-03-04 13:20:00',
+        '2016-11-13 11:00:00',
+        '2013-09-04 12:00:00',
+        '2007-11-06 22:10:00',
+        '2006-10-04 09:20:00',
+        '2015-04-24 03:30:00',
+        '2012-07-03 10:30:00',
+        '2007-10-03 19:10:00',
+        '2007-09-25 08:20:00',
+        '2016-12-29 02:30:00',
+        '2007-10-26 18:20:00',
+        '2009-07-13 06:30:00',
+        '2010-09-03 16:30:00',
+        '2009-04-14 02:10:00',
+        '2015-10-12 08:00:00']
+
+    #df=load_dataframe(r'U:\Research\EruptionForecasting\eruptions\data'+os.sep+'RU001_temp_data.csv', index_col=0, parse_dates=[0,], infer_datetime_format=True)
+    #save_dataframe(df, r'U:\Research\EruptionForecasting\eruptions\data'+os.sep+'RU001A_level_data_repaired.csv', index=True)
+
+    zd=Data(station='RU001A', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
     td=TremorData(station='FWVZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    Td=Data(station='RU001', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
     
-    f,ax=plt.subplots(1,1)
-    te=td.tes[2]
-    te=datetimeify('2016-11-13 11:00:00')
-    t0,t1=[te-5*day,te+day]
-    inds=(td.df.index>t0)&(td.df.index<t1)
-    ax.plot(td.df.index[inds], td.df['rsamF'][inds],'k-')
-    ax.plot(td.df.index[inds], td.df['rsam'][inds],'k-',alpha=0.5)
-    ax.axvline(te,color='r',linestyle=':')
+    #td.set_timezone()
+
+    if False:
+        f,axs=plt.subplots(5,3, figsize=(20,10))
+        axs=[axi for ax in axs for axi in ax]
+    else:
+        #td.update()
+        f,ax=plt.subplots(1,1, figsize=(10,5))
+        axs=[ax]
+        tes=[(td.df.index[-1]-5*day).strftime('%Y-%m-%d %H:%M:%S')]
+
+    ds=td.df['dsarF'].rolling(2*24*6).median()
+    ds0=td.df['dsarF']
     
-    ax_=ax.twinx()
-    inds=(Td.df.index>t0)&(Td.df.index<t1)
-    ax_.plot(Td.df.index[inds], Td.df[' t (C)'][inds],'g-')
+    plt.tight_layout()
+    for ax,tei in zip(axs,tes):
+        te=datetimeify(tei)
+        t0,t1=[te-5*day,te+5*day]
+        inds=(td.df.index>t0)&(td.df.index<t1)
+
+        ax.plot(td.df.index[inds], td.df['rsam'][inds], 'k-', alpha=0.5)
+        ax.plot(td.df.index[inds], td.df['rsamF'][inds], 'k-', label='rsam')
+        ax.set_ylim([0, 3*td.df['rsamF'][inds].mean()])
+        
+        ax_=ax.twinx()
+        # inds=(zd.df.index>t0)&(zd.df.index<t1)
+        # ax_.plot(zd.df.index[inds], zd.df[' z (m)'][inds], 'b-')
+        # ax.plot([],[], 'b-',label='lake level')
+        #ax_.plot(ds.index[inds], ds[inds], 'b-')
+        ax_.plot(ds0.index[inds], ds0[inds], 'b-', lw=0.5)
+        ax.plot([],[], 'b-',label='dsar')
+        inds=(Td.df.index>t0)&(Td.df.index<t1)
+        ax__=ax.twinx()
+        ax__.plot(Td.df.index[inds], Td.df[' t (C)'][inds], 'g-')
+        #ax.plot([],[], 'g-',label='lake temp.')
+        # ax.set_ylabel('rsam')
+        # ax_.set_ylabel('lake level')
+        ax.set_xlim([t0,t1])
+        ax.text(0.95,0.95,tei[:10],transform=ax.transAxes,ha='right',va='top')
+    ax.legend()
+    
+    if len(axs) == 1:
+        plt.savefig('ruapehu_now.png',dpi=400)
+    else:
+        plt.savefig('ruapehu_events.png',dpi=400)
+
+def whakaari_dsar():
+       
+    td=TremorData(station='FWVZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    #td.eruption_record.eruptions[2].date=datetimeify('2013-10-11 07:09:00')
+    f,axs=plt.subplots(3,1, figsize=(7,7))
+    #axs=[axi for ax in axs for axi in ax]
+    
+    ds=td.df['dsarF'].rolling(2*24*6).median()
+    ds0=td.df['dsarF']
+
+    # f,ax=plt.subplots()
+    # ax.hist(ds0.values,bins=np.linspace(0,15,31),label='DSAR')
+    # ax.axvline(np.percentile(ds0.values,50),color='r',linestyle='-',label='50pct')
+    # ax.axvline(np.percentile(ds0.values,95),color='r',linestyle='--',label='90pct')
+    # ax.set_xlabel('DSAR')
+    # ax.legend()
+    # plt.show()
+    
+    import matplotlib.dates as mdates
+    plt.tight_layout()
+    for ax,tei in zip(axs,td.tes):
+        te=datetimeify(tei)
+        t0,t1=[te-30*day,te+1*day]
+        inds=(td.df.index>t0)&(td.df.index<t1)
+
+        # ax.plot(td.df.index[inds], td.df['rsamF'][inds], 'k-', lw=0.5, label='rsam',alpha=0.5)
+        # ax.set_ylim([0, 3*td.df['rsamF'][inds].mean()])
+        ax.axvline(te,color='r',linestyle=':',label='eruption')
+        
+        # ax_=ax.twinx()
+        ax_=ax
+        ax_.plot(ds0.index[inds], ds0[inds], 'b-', alpha=0.3, lw=0.5)
+        ax_.plot(ds.index[inds], ds[inds], 'b-')
+        ax.plot([],[], 'b-',label='2-day dsar')
+        ax.set_xlim([t0,t1])
+        ax.text(0.03,0.95,tei.strftime('%b-%Y'),transform=ax.transAxes,ha='left',va='top')
+
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b'))
+    axs[2].legend(loc=9)
+
+    plt.savefig('whakaari_dsar.png',dpi=400)
+
+def looking_for_vlps_ruapehu():
+
+    f,ax=plt.subplots(1,1,figsize=(10,5))
+    td=TremorData(station='FWVZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    te=td.tes[1]
+    
+    te=datetimeify('2007 09 25 08 26 00')
+    st=Station('FWVZ')
+    t0,t1=(te-0.5*day,te+0.5*day)
+    wv=st.get_waveform(t0,t1)
+
+    
+    inds=(td.df.index<t1)&(td.df.index>t0)
+    df=td.df[inds]
+    ax.axvline(te, color='r', linestyle=':')
+    ax.plot(wv.index,wv['raw'],'k-')
+
+    wv['vlp']=bandpass(wv['raw'].values, 1./25, 1./6.6, 100)
+    wv['vlf']=bandpass(wv['raw'].values, 1./100, 1./10, 100)
+    wv['lf']=bandpass(wv['raw'].values, 1./10, 1./0.5, 100)
+
+    # ax_=ax.twinx()
+    # ax_.plot(wv.index,wv['vlf'],'m-', lw=0.5)
+    # ax_.plot(wv.index,wv['lf'],'c-', lw=0.5)
+    
+    ax__=ax.twinx()
+    ax__.plot(df.index,df['vlf'],'g-')
+    ax__.plot(df.index,df['vlfF'],'m-')
+    # ax.set_xlim([te-day/24/3, te+day/24/6])
     
     plt.show()
+    #plt.savefig('vlps.png',dpi=400)
+def looking_for_vlps_whakaari():
+
+    f,ax=plt.subplots(1,1,figsize=(10,5))
+    # td=TremorData(station='WIZ', transforms=['log_zsc'],
+    #     data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    
+    te=datetimeify('2019-05-24 01:41:52')
+    st=Station('WIZ')
+    t0,t1=(te-0.25*day,te+0.25*day)
+    #wv=st.get_waveform(t0,t1)
+    wv=st.get_tremor(t0,t1,pad_f=0.)    
+    wv1=st.get_tremor(t0,t1+day/24/6,pad_f=0.)
+
+    # inds=(td.df.index<t1)&(td.df.index>t0)
+    # df=td.df[inds]
+    ax.axvline(te, color='r', linestyle=':')
+    #ax.plot(wv.index,wv['raw'],'k-')
+
+    # wv['vlp']=bandpass(wv['raw'].values, 1./25, 1./6.6, 100)
+    # wv['vlf']=bandpass(wv['raw'].values, 1./100, 1./10, 100)
+    #wv['lf']=bandpass(wv['raw'].values, 1./10, 1./0.5, 100)
+
+    # ax_=ax.twinx()
+    ax.plot(wv.index,wv['vlf'],'k-', lw=0.5)
+    ax.plot(wv1.index,wv1['vlf'],'c-', lw=0.5)
+    #ax_.plot(wv.index,wv['lf'],'c-', lw=0.5)
+    
+    # ax__=ax.twinx()
+    # ax__.plot(df.index,df['log_zsc_vlf'],'g-')
+    # ax__.plot(df.index,df['log_zsc_vlfF'],'m-')
+    # ax.set_xlim([te-day/24/3, te+day/24/6])
+    
+    plt.show()
+    #plt.savefig('vlps.png',dpi=400)
 
 if __name__ == "__main__":
-    ruapehu_2009()
+    # whakaari_dsar()
+    # ruapehu_2009()
+    # looking_for_vlps_ruapehu()
+    looking_for_vlps_whakaari()
     #import_data()
     #data_Q_assesment()
     #calc_feature_pre_erup()

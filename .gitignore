@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 data/
 !data/data_README.md
+!data/test_tremor_data.md
 models/
 !models/models_README.md
 features/

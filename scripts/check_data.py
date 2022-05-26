@@ -2,7 +2,7 @@ from datetime import timedelta
 import os, sys
 sys.path.insert(0, os.path.abspath('..'))
 from puia.data import TremorData, repair_dataframe
-from puia.tests import DummyClass
+from puia.utilities import DummyClass
 from glob import glob
 
 from matplotlib import pyplot as plt
