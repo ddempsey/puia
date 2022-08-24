@@ -18,6 +18,7 @@ def main():
     cnt = 0
     for fl in fls:
         station = fl.split(os.sep)[-1].split('_')[0]
+        station='WIZ'
         
         try:
             td=TremorData(station, data_dir=wd)

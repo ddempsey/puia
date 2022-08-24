@@ -136,6 +136,18 @@ def corr_ana_feat():
     
 def ruapehu_2009():
     
+    q,rsam=np.genfromtxt(r'P:\My Documents\papers\ardid_lakes_grl\plot-data.csv', skip_header=1, delimiter=',').T
+
+    f,ax=plt.subplots(1,1)
+    ax.plot(np.log10(q), np.log10(rsam), 'kx')
+    # ax.plot(q, rsam, 'kx')
+    def y(x,m,c): return m*x+c
+    from scipy.optimize import curve_fit
+    p=curve_fit(y, np.log10(q), np.log10(rsam), [1,0])[0]
+    print(p)
+    plt.show()
+
+
     tes=['2021-03-04 13:20:00',
         '2016-11-13 11:00:00',
         '2013-09-04 12:00:00',
@@ -205,6 +217,47 @@ def ruapehu_2009():
     else:
         plt.savefig('ruapehu_events.png',dpi=400)
 
+def ruapehu_2016_discharge():
+    
+    q,rsam=np.genfromtxt(r'P:\My Documents\papers\ardid_lakes_grl\plot-data.csv', skip_header=1, delimiter=',').T
+
+    # f,ax=plt.subplots(1,1)
+    # ax.plot(np.log10(q), np.log10(rsam), 'kx')
+    # # ax.plot(q, rsam, 'kx')
+    # def y(x,m,c): return m*x+c
+    # from scipy.optimize import curve_fit
+    # p=curve_fit(y, np.log10(q), np.log10(rsam), [1,0])[0]
+    # print(p)
+    # plt.show()
+
+    tes=['2021-03-04 13:20:00',
+        '2016-11-13 11:00:00',
+        '2009-07-13 06:50:00',
+        '2010-09-03 16:30:00',]
+
+    td=TremorData(station='FWVZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    
+    f,axs=plt.subplots(2,2, figsize=(10,5))
+    axs=[axi for ax in axs for axi in ax]
+    
+    plt.tight_layout()
+    for ax,tei in zip(axs,tes):
+        te=datetimeify(tei)
+        t0,t1=[te,te+day]
+        inds=(td.df.index>t0)&(td.df.index<t1)
+
+        ax.plot(np.arange(td.df['rsam'][inds].shape[0])/6, td.df['rsam'][inds], 'k-', lw=0.5)
+        # ax.set_ylim([0, 3*td.df['rsamF'][inds].mean()])
+        
+        # ax.set_xlim([t0,t1])
+        ax.text(0.95,0.95,tei[:10],transform=ax.transAxes,ha='right',va='top')
+        ax.set_yscale('log')
+        ax.set_xlabel('time since release [hours]')
+        ax.set_ylabel('RSAM $\propto$ fluid release rate')
+    ax.legend()
+    
+    plt.savefig('ruapehu_2016_discharge.png',dpi=400)
+    
 def whakaari_dsar():
        
     td=TremorData(station='FWVZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
@@ -246,6 +299,33 @@ def whakaari_dsar():
     axs[2].legend(loc=9)
 
     plt.savefig('whakaari_dsar.png',dpi=400)
+
+def whakaari_rsam():
+       
+    td=TremorData(station='WIZ', data_dir=r'U:\Research\EruptionForecasting\eruptions\data')
+    #td.eruption_record.eruptions[2].date=datetimeify('2013-10-11 07:09:00')
+    # f,axs=plt.subplots(3,1, figsize=(7,7))
+    #axs=[axi for ax in axs for axi in ax]
+    
+    ds0=td.df['rsam']
+
+    f,ax=plt.subplots()
+    ts=[ds0.index[0],]
+    ts+=[datetimeify(ti) for ti in ['2011-01-01','2014-01-01','2015-01-01','2018-01-01','2021-01-01']]
+    bins=np.linspace(1,4,21)
+    cs=['b','g','r','k']
+    for ti,tf,c in zip(ts[:2],ts[1:3],cs[:2]):
+        lbl=ti.strftime('%Y')+'-'+tf.strftime('%Y')
+        ax.hist(np.log10(ds0[(ds0.index>ti)&(ds0.index<tf)].values),bins=bins,label=lbl,alpha=0.5,color=c)
+    for ti,tf,c in zip(ts[3:-1],ts[4:],cs[2:]):
+        lbl=ti.strftime('%Y')+'-'+tf.strftime('%Y')
+        ax.hist(np.log10(ds0[(ds0.index>ti)&(ds0.index<tf)].values),bins=bins,label=lbl,alpha=0.5,color=c)
+    ax.set_xlabel('log10(RSAM)')
+    ax.set_ylabel('frequency')
+    ax.legend()
+    # plt.show()
+    
+    plt.savefig('whakaari_rsam.png',dpi=400)
 
 def looking_for_vlps_ruapehu():
 
@@ -316,9 +396,11 @@ def looking_for_vlps_whakaari():
 
 if __name__ == "__main__":
     # whakaari_dsar()
+    # whakaari_rsam()
     # ruapehu_2009()
+    ruapehu_2016_discharge()
     # looking_for_vlps_ruapehu()
-    looking_for_vlps_whakaari()
+    # looking_for_vlps_whakaari()
     #import_data()
     #data_Q_assesment()
     #calc_feature_pre_erup()
