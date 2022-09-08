@@ -27,7 +27,7 @@ This objects just manipulates feature matrices that already exist.
 '''
 
 class FeaturesSta(object):
-    """ Object to manage manipulation of feature matrices derived from seismic data
+    """ Class to loas manipulate feature matrices derived from seismic data
         (Object works for one station).
         
         Constructor arguments (and attributes):
@@ -189,7 +189,7 @@ class FeaturesSta(object):
 
             Parameters:
             -----------
-            ft_lt   :   list of strings
+            ft_lt   :   file directory containing list feature names (strs)
                 list of feature to keep. File need to be a comma separated text file 
                 where the second column corresponds to the feature name.  
 
@@ -218,7 +218,9 @@ class FeaturesSta(object):
             #self.fM = self.fM.drop(col_drops, axis=1)
             
 class FeaturesMulti(object):
-    """ Object to manage multiple feature matrices (lis of FeaturesSta objects)
+    """ Class to manage multiple feature matrices (list of FeaturesSta objects). 
+        Feature matrices (from each station) are imported for the same period of time 
+        using as references the eruptive times (see dtb and dtf). 
 
         Attributes:
         -----------
@@ -228,32 +230,123 @@ class FeaturesMulti(object):
             window length for the features
         datastream  :   str
             data stream from where features were calculated
-        df : pandas.DataFrame
-            Time series of features for multiple stations
+        dtb : float
+            Days looking 'back' from eruptive times to import (for each station)
+        dtf : float
+            Days looking 'forward' from eruptive times to import (for each station)
+
         feat_list   :   list of string
             List of features  
         ref :   vector 
             vector of increasing integers as reference (for each time row in dataframe)
             add as column 'ref' to dataframe (to be used instead of time column)
-        labels  :   binary vector
-            binary vector indicating if row in dataframe constains eruptions (same size as ref)
+        fM : pandas.DataFrame
+            Feature matrix of combined ime series of features for multiple stations
+        ys  :   pandas.DataFrame
+            Binary labels for rows in fM. Index correspond to an increasing integer (reference number)
+            Dates for each row in fM ar kept in column 'time'
          
         Methods:
         --------
-        load
-            load multiple feature matrices
+        _load_tes
+            load eruptive dates of volcanoes in list
+        _load
+            load multiple feature matrices. Normalization and feature delection is performed here. 
         save
             save feature matrix
-        normalize
-            normalize feature time series 
-        filter_features
-            filter features with non-relevant variance (after normalization)
-        match_features
-            match features between stations (remove non matching features)
-        concatenate
-            concatenate multiple feature matrices from diferent stations 
     """
-    pass
+    def __init__(self, stations=None, window = 2., datastream = 'zsc2_dsarF', feat_dir=None, 
+        dtb=None, dtf=None, tes_dir=None, feat_selc=None):
+        self.stations=stations
+        self.window=window
+        self.datastream=datastream
+        self.n_jobs=4
+        self.feat_dir=feat_dir
+        #self.file= os.sep.join(self._wd, 'fm_', str(window), '_', self.datastream,  '_', self.station, 
+        self.dtb=dtb*day
+        self.dtf=dtf*day
+        self.fM=None
+        self.feat_selc=feat_selc
+        self.tes_dir=tes_dir
+        self._load_tes(tes_dir) # create self.tes
+        self._load() # create dataframe from feature matrices
+    def _load_tes(self,tes_dir):
+        ''' Load eruptive times for list of volcanos (self.stations). 
+            A dictionary is created with station names as key and list of eruptive times as values. 
+            Parameters:
+            -----------
+            tes_dir : str
+                Repository location on eruptive times file
+            Returns:
+            --------
+            Note:
+            --------
+            Attributes created:
+            self.tes : diccionary of eruptive times per stations. 
+        '''
+        #
+        self.tes = {}
+        for sta in self.stations:
+            # get eruptions
+            fl_nm = os.sep.join([tes_dir,sta+'_eruptive_periods.txt'])
+            with open(fl_nm,'r') as fp:
+                self.tes[sta] = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
+    def _load(self):
+        """ Load and combined feature matrices and label vectors from multiple stations. 
+            Parameters:
+            -----------
+            Returns:
+            --------
+            Note:
+            --------
+            Matrices per stations are reduce to selected features (if given; self.feat_selc) 
+            and normalize (before concatenation). Columns (features) with nans are remove too.
+            Attributes created:
+            self.fM : pd.DataFrame
+                Combined feature matrix of multiple stations and eruptions
+            self.ys : pd.DataFrame
+                Label vector of multiple stations and eruptions
+        """
+        #
+        fM = []
+        ys = []
+        for sta in self.stations:
+            for te in self.tes[sta]: 
+                # FeatureSta
+                feat_sta = FeaturesSta(station=sta, window=self.window, datastream=self.datastream, feat_dir=self.feat_dir, 
+                    ti=te-self.dtb, tf=te+self.dtf, tes_dir = self.tes_dir)
+                if self.feat_selc:
+                    feat_sta.reduce(ft_lt=self.feat_selc)
+                feat_sta.norm()
+                fM.append(feat_sta.fM)
+                ys.append(feat_sta.ys)
+                del feat_sta
+        # concatenate and modifify index to a reference ni
+        self.fM=pd.concat(fM)
+        # drop columns with NaN
+        self.fM=self.fM.drop(columns=self.fM.columns[self.fM.isna().any()].tolist())
+        # create index with a reference number and create column 'time' 
+        self.fM['time']=self.fM.index
+        self.fM.index=range(self.fM.shape[0])
+        self.ys=pd.concat(ys)
+        self.ys['time']=self.ys.index
+        self.ys.index=range(self.ys.shape[0])
+        # modifiy index 
+        del fM, ys
+    def save(self, fl_nm=None):
+        ''' Save feature matrix constructed 
+            Parameters:
+            -----------
+            fl_nm   :   str
+                file name (include format: .csv, .pkl, .hdf)
+            Returns:
+            --------
+            Note:
+            --------
+            File is save on feature directory (self.feat_dir)
+        '''
+        save_dataframe(self.fM, os.sep.join([self.feat_dir,fl_nm]), index=True)
+        #save_dataframe(self.ys, os.sep.join([self.feat_dir,fl_nm]), index=True)
 
 class PCA(object):
     """ Object that performs PCA analiysis of feature matrices 
@@ -300,11 +393,21 @@ class PCA(object):
 
 # testing
 if __name__ == "__main__":
-    # FeatureSta
-    feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
-    tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
-    feat_sta = FeaturesSta(station='WIZ', window = 2., datastream = 'zsc2_dsarF', feat_dir=feat_dir, ti='2019-12-07', tf='2019-12-10', tes_dir = tes_dir)
-    feat_sta.norm()
-    fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
-    feat_sta.reduce(ft_lt=fl_lt)
-    
+    if False:
+        # FeatureSta
+        feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
+        tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
+        feat_sta = FeaturesSta(station='WIZ', window = 2., datastream = 'zsc2_dsarF', feat_dir=feat_dir, ti='2019-12-07', tf='2019-12-10', tes_dir = tes_dir)
+        feat_sta.norm()
+        fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
+        feat_sta.reduce(ft_lt=fl_lt)
+    if True:
+        # FeatureSta
+        feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
+        tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
+        fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
+        #
+        stations=['WIZ','FWVZ','KRVZ','PVV','VNSS','BELO','GOD','TBTN','MEA01']
+        feat_stas = FeaturesMulti(stations=stations, window = 2., datastream = 'zsc2_dsarF', feat_dir=feat_dir, 
+            dtb=5, dtf=2, tes_dir=tes_dir, feat_selc=fl_lt)
+        feat_stas.save(fl_nm='_fm.csv')
