@@ -221,6 +221,7 @@ class FeaturesMulti(object):
     """ Class to manage multiple feature matrices (list of FeaturesSta objects). 
         Feature matrices (from each station) are imported for the same period of time 
         using as references the eruptive times (see dtb and dtf). 
+        This class performs PCA analysis on the feature matrices. 
 
         Attributes:
         -----------
@@ -245,7 +246,12 @@ class FeaturesMulti(object):
         ys  :   pandas.DataFrame
             Binary labels for rows in fM. Index correspond to an increasing integer (reference number)
             Dates for each row in fM ar kept in column 'time'
-         
+        U   :   numpy matrix
+            Unitary matrix 'U' from SVD of fM (shape nxm). Shape is nxn.
+        S   :   numpy vector
+            Vector of singular value 'S' from SVD of fM (shape nxm). Shape is nxm.
+        VT  :   numpy matrix
+            Transponse of unitary matrix 'V' from SVD of fM (shape mxm). Shape is mxm.
         Methods:
         --------
         _load_tes
@@ -254,22 +260,33 @@ class FeaturesMulti(object):
             load multiple feature matrices. Normalization and feature delection is performed here. 
         save
             save feature matrix
+        svd
+            compute svd on feature matrix 
+        plot_svd_v
+            plot eigen values from svd
+        plot_svd_pc
+            scatter plot of two principal components 
+        cluster
+            cluster principal components (e.g, DBCAN)
+        plot_cluster
+            plot cluster in a 2D scatter plot
     """
     def __init__(self, stations=None, window = 2., datastream = 'zsc2_dsarF', feat_dir=None, 
         dtb=None, dtf=None, tes_dir=None, feat_selc=None):
         self.stations=stations
-        self.window=window
-        self.datastream=datastream
-        self.n_jobs=4
-        self.feat_dir=feat_dir
-        #self.file= os.sep.join(self._wd, 'fm_', str(window), '_', self.datastream,  '_', self.station, 
-        self.dtb=dtb*day
-        self.dtf=dtf*day
-        self.fM=None
-        self.feat_selc=feat_selc
-        self.tes_dir=tes_dir
-        self._load_tes(tes_dir) # create self.tes
-        self._load() # create dataframe from feature matrices
+        if self.stations:
+            self.window=window
+            self.datastream=datastream
+            self.n_jobs=4
+            self.feat_dir=feat_dir
+            #self.file= os.sep.join(self._wd, 'fm_', str(window), '_', self.datastream,  '_', self.station, 
+            self.dtb=dtb*day
+            self.dtf=dtf*day
+            self.fM=None
+            self.feat_selc=feat_selc
+            self.tes_dir=tes_dir
+            self._load_tes(tes_dir) # create self.tes
+            self._load() # create dataframe from feature matrices
     def _load_tes(self,tes_dir):
         ''' Load eruptive times for list of volcanos (self.stations). 
             A dictionary is created with station names as key and list of eruptive times as values. 
@@ -345,55 +362,86 @@ class FeaturesMulti(object):
             --------
             File is save on feature directory (self.feat_dir)
         '''
+        if not fl_nm:
+            fl_nm = 'FM_'+str(int(self.window))+'w_'+self.datastream+'_'+'-'.join(self.stations)+'_'+str(self.dtb.days)+'dtb_'+str(self.dtf.days)+'dtf'+'.csv'
         save_dataframe(self.fM, os.sep.join([self.feat_dir,fl_nm]), index=True)
         #save_dataframe(self.ys, os.sep.join([self.feat_dir,fl_nm]), index=True)
+    def load_fM(self, feat_dir, fl_nm):
+        ''' Load feature matrix from file. 
+        '''
+        # assing attributes from file name
+        def _load_atrib_from_file(fl_nm): 
+            _ = fl_nm.split('.')[0]
+            _ = _.split('_')[1:]
+            self.stations=_[-3].split('-')
+            self.window = int(_[0][0])
+            self.dtf=int(_[-1][0])
+            self.dtb=int(_[-2][0])
+            self.data_stream=('_').join(_[1:-3])
+            #
+            self.feat_dir = feat_dir
+        _load_atrib_from_file(fl_nm)
+        # load file
+        self.fM = load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        self.fM['time'] = pd.to_datetime(self.fM['time'])
+        self.fM = self.fM.drop('time', axis=1)
 
-class PCA(object):
-    """ Object that performs PCA analiysis of feature matrices 
-        
-        Attributes:
-        -----------
-        stations : list of strings
-            list of stations in the feature matrix
-        window  :   int
-            window length for the features
-        datastream  :   str
-            data stream from where features were calculated
-        df : pandas.DataFrame
-            Time series of features for multiple stations
-        feat_list   :   list of string
-            List of features  
-        ref :   vector 
-            vector of increasing integers as reference (for each time row in dataframe)
-            add as column 'ref' to dataframe (to be used instead of time column)
-        labels  :   binary vector
-            binary vector indicating if row in dataframe constains eruptions (same size as ref)
-         
-        Methods:
-        --------
-        load
-            load multiple feature matrices
-        normalize
-            normalize feature time series 
-        save
-            save feature matrix
-        svd
-            compute svd on feature matrix 
-        plot_v
-            plot eigen values from svd
-        plot_scatter_2D_pc
-            scatter plot of two principal components 
-        cluster
-            cluster principal components (e.g, DBCAN)
-        plot_cluster
-            plot cluster in a 2D scatter plot
-            
-    """
-    pass
+    def svd(self):
+        ''' Compute SVD (singular value decomposition) on feature matrix. 
+        '''
+        #_fM = self.fM.drop('time',axis=1)
+        self.U,self.S,self.VT=np.linalg.svd(self.fM,full_matrices=True)
+    def plot_svd_v(self):
+        ''' Plot eigen values from svd
+        '''
+        plt.rcParams['figure.figsize'] = [8, 8]
+        fig1 = plt.figure()
+        #
+        ax1 = fig1.add_subplot(221)
+        #ax1.semilogy(S,'-o',color='k')
+        ax1.semilogy(self.S[:int(len(self.S))],'-o',color='k')
+        ax2 = fig1.add_subplot(222)
+        #ax2.plot(np.cumsum(S)/np.sum(S),'-o',color='k')
+        ax2.plot(np.cumsum(self.S[:int(len(self.S))])/np.sum(self.S[:int(len(self.S))]),'-o',color='k')
+        #
+        ax3 = fig1.add_subplot(223)
+        #ax1.semilogy(S,'-o',color='k')
+        ax3.semilogy(self.S[:int(len(self.S)/10)],'-o',color='k')
+        ax4 = fig1.add_subplot(224)
+        #ax2.plot(np.cumsum(S)/np.sum(S),'-o',color='k')
+        ax4.plot(np.cumsum(self.S[:int(len(self.S)/10)])/np.sum(self.S[:int(len(self.S)/10)]),'-o',color='k')
+        #
+        [ax.set_title('eigen values') for ax in [ax1,ax3]]
+        [ax.set_title('cumulative eigen values') for ax in [ax2,ax4]]
+        [ax.set_xlabel('# eigen value') for ax in [ax1,ax2,ax3,ax4]]
+        plt.tight_layout()
+        plt.show() 
+    def plot_svd_pc(self):
+        ''' Plot fM (feature matrix) into principal component.
+            Rows of fM are projected into rows of VT.  
+        '''
+        #
+        plt.rcParams['figure.figsize'] = [8, 8]
+        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6), (ax7, ax8, ax9)) = plt.subplots(3, 3)
+        fig.suptitle('fM projected in VT')
+        #
+        for i, ax in enumerate(fig.get_axes()):
+            for j in range(self.fM.shape[0]):
+                #x = VT[3,:] @ covariance_matrix[j,:].T
+                y = self.VT[i,:] @ self.fM.values[j,:].T
+                z = self.VT[i+1,:] @ self.fM.values[j,:].T
+                ax.plot(y,z,'b.')
+            #ax1.set_xlabel('pc3')
+            ax.set_xlabel('pc'+str(i+1))
+            ax.set_ylabel('pc'+str(i+2))
+            #ax1.view_init(0,0)
+        #fig.legend()   
+        plt.tight_layout()     
+        plt.show()
 
 # testing
 if __name__ == "__main__":
-    if False:
+    if False: # FeatureSta class
         # FeatureSta
         feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
         tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
@@ -401,13 +449,33 @@ if __name__ == "__main__":
         feat_sta.norm()
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
         feat_sta.reduce(ft_lt=fl_lt)
-    if True:
-        # FeatureSta
+    if True: # FeatureMulti class
+        # 
         feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
         tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
-        #
-        stations=['WIZ','FWVZ','KRVZ','PVV','VNSS','BELO','GOD','TBTN','MEA01']
-        feat_stas = FeaturesMulti(stations=stations, window = 2., datastream = 'zsc2_dsarF', feat_dir=feat_dir, 
-            dtb=5, dtf=2, tes_dir=tes_dir, feat_selc=fl_lt)
-        feat_stas.save(fl_nm='_fm.csv')
+        if False: # create combined feature matrix
+            stations=['WIZ','FWVZ','KRVZ','PVV','VNSS','BELO','GOD','TBTN','MEA01']
+            win = 2.
+            dtb = 7 
+            dtf = 0
+            datastream = 'zsc2_dsarF'
+            feat_stas = FeaturesMulti(stations=stations, window = win, datastream = datastream, feat_dir=feat_dir, 
+                dtb=5, dtf=2, tes_dir=tes_dir, feat_selc=fl_lt)
+            fl_nm = 'FM_'+str(int(win))+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
+            feat_stas.save()#fl_nm=fl_nm)
+            #
+        if True: # load existing combined feature matrix 
+            feat_stas = FeaturesMulti()
+            #fl_nm = 'FM_'+str(win)+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
+            fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ_5dtb_2dtf.csv'
+            fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ-KRVZ-PVV-VNSS-BELO-GOD-TBTN-MEA01_5dtb_2dtf.csv'
+            feat_stas.load_fM(feat_dir=feat_dir, fl_nm = fl_nm)
+            #
+            feat_stas.svd()
+            #feat_stas.plot_svd_v()
+            feat_stas.plot_svd_pc()
+
+
+
+
