@@ -212,25 +212,33 @@ class FeaturesSta(object):
 
             Parameters:
             -----------
-            ft_lt   :   file directory containing list feature names (strs)
-                list of feature to keep. File need to be a comma separated text file 
-                where the second column corresponds to the feature name.  
-
+            ft_lt   :   str, list
+                str: file directory containing list feature names (strs)
+                    list of feature to keep. File need to be a comma separated text file 
+                    where the second column corresponds to the feature name.  
+                list:   list of names (strs) of columns (features) to keep
             Returns:
             --------
             Note:
             --------
-            If list of feature not given, method assumes that matrix have been normalized (self.norm())
             Method rewrite self.fM (inplace)
+            If list of feature not given, method assumes that matrix have been normalized (self.norm())
         '''
+
         if ft_lt:
-            v = self.fM.columns
-            a = self.fM.shape
-            with open(ft_lt,'r') as fp:
-                colm_keep=[ln.rstrip().split(',')[1].rstrip() for ln in fp.readlines() if (self.datastream in ln and 'cwt' not in ln)]
-                self.colm_keep=colm_keep
-                # temporal (to fix): if 'cwt' not in ln (features with 'cwt' contains ',' in their names, so its split in the middle)
-            self.fM = self.fM[self.colm_keep] # not working
+            isstr=isinstance(ft_lt, str)
+            islst=isinstance(ft_lt, list)
+            if isstr:
+                v = self.fM.columns
+                a = self.fM.shape
+                with open(ft_lt,'r') as fp:
+                    colm_keep=[ln.rstrip().split(',')[1].rstrip() for ln in fp.readlines() if (self.datastream in ln and 'cwt' not in ln)]
+                    self.colm_keep=colm_keep
+                    # temporal (to fix): if 'cwt' not in ln (features with 'cwt' contains ',' in their names, so its split in the middle)
+                self.fM = self.fM[self.colm_keep] # not working
+            if islst:
+                a=ft_lt[0]
+                self.fM = self.fM[ft_lt] # not working
         else: 
             # drop by some statistical criteria to develop
             pass
@@ -285,6 +293,7 @@ class FeaturesMulti(object):
             Equivalent to fM but with non-eruptive times
         ys_mirror  :   pandas.DataFrame
             Equivalent to ys but with non-eruptive times
+        
         U   :   numpy matrix
             Unitary matrix 'U' from SVD of fM (shape nxm). Shape is nxn.
         S   :   numpy vector
@@ -651,7 +660,7 @@ if __name__ == "__main__":
 
         tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
-        if True: # create combined feature matrix
+        if False: # create combined feature matrix
             stations=['WIZ','FWVZ']#,'KRVZ']#,'VNSS','BELO','GOD','TBTN','MEA01']
             win = 2.
             dtb = 14
@@ -662,10 +671,10 @@ if __name__ == "__main__":
             #fl_nm = 'FM_'+str(int(win))+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
             feat_stas.save()#fl_nm=fl_nm)
             #
-        if False: # load existing combined feature matrix 
+        if True: # load existing combined feature matrix 
             feat_stas = FeaturesMulti()
             #fl_nm = 'FM_'+str(win)+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
-            fl_nm = 'FM_2w_zsc2_rsamF_WIZ_21dtb_0dtf.csv'
+            fl_nm = 'FM_2w_zsc2_rsamF_WIZ-FWVZ_30dtb_0dtf.csv'
             #fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ-KRVZ-PVV-VNSS-BELO-GOD-TBTN-MEA01_5dtb_2dtf.csv'
             feat_stas.load_fM(feat_dir=feat_dir,fl_nm=fl_nm,noise_mirror=True)
             #
