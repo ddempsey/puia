@@ -302,7 +302,9 @@ class FeaturesMulti(object):
             Equivalent to ys but with non-eruptive times
         savefile_type : str
             Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
-        
+        feat_dir: str
+            Repository location of feature matrices.
+
         U   :   numpy matrix
             Unitary matrix 'U' from SVD of fM (shape nxm). Shape is nxn.
         S   :   numpy vector
