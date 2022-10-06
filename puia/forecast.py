@@ -72,6 +72,11 @@ makedir = lambda name: os.makedirs(name, exist_ok=True)
 Here are two feature clases that operarte a diferent levels. 
 FeatureSta oject manages single stations, and FeaturesMulti object manage multiple stations using FeatureSta objects. 
 This objects just manipulates feature matrices that already exist. 
+
+Todo:
+- format to save dataframe with metadata
+- add a method to forecast accuracy 
+= methods to implement: get_performance, _compute_CI, plot_performance
 '''
 # ForecastModel class (from whakaari repo)
 def get_classifier(classifier):
@@ -126,16 +131,15 @@ def get_classifier(classifier):
         raise ValueError("classifier '{:s}' not recognised".format(classifier))
     
     return model, grid
-
 def predict_models(fM, model_path, flps,yr):
     ''' helper function to parallelise model forecasting
     '''
     ypdfs = []
-    for flp in tqdm(flps, desc='forecasting {:d}'.format(yr)):
+    for flp in tqdm(flps, desc='forecasting'):# {:d}'.format(yr)):
         flp,fl = flp
         # print('start:',flp)
 
-        if os.path.isfile(fl):
+        if os.path.isfile(fl): # load prediction
             ypdf0 = load_dataframe(fl, index_col='time', infer_datetime_format=True, parse_dates=['time'])
 
         num = flp.split(os.sep)[-1].split('.')[0].split('_')[-1]
@@ -194,7 +198,6 @@ def predict_one_model(fM, model_path, flp):
     save_dataframe(ypdf, fl, index=True, index_label='time')
     print('finish:',flp)
     return ypdf
-
 class ForecastModel(object):
     """ Object for train and running forecast models.
         
@@ -1143,7 +1146,7 @@ class ForecastModel(object):
         # condense data frames and write output
         ys = pd.concat(ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
-        forecast = pd.DataFrame(consensus, columns=['consensus'], index=ys.index)
+        forecast = pd.DataFrame(consensus, columns=['consensus'], index=self.fM.index)#ys.index)
 
         save_dataframe(forecast, confl, index=True, index_label='time')
         
@@ -1456,103 +1459,86 @@ class ForecastModel(object):
         return FP, FN, TP, TN, dur, MCC
 
 class ForecastTransLearn(object):
-    ''' Object for running forecast models.  
+    ''' Object for running forecast models. 
+        Model from TrainModelCombined claa is loaded and apply to a particular station. 
         
         Constructor arguments:
         ----------------------
-        window : float
-            Length of data window in days.
-        overlap : float
-            Fraction of overlap between adjacent windows. Set this to 1. for overlap of entire window minus 1 data point.
-        look_forward : float
-            Length of look-forward in days.
-        stations_train : str
-            Seismic stations providing data for training.
-        station_test : str
-            Seismic station providing data for testing.
-        datastreams : list
-            Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', and 'stft_X' 
-            where X is one of 'rsam', 'mf', 'hf', or 'dsar'. 
-        feature_root : str
-            Root for feature naming.
-        feature_dir : str
-            Directory to save feature matrices.
-        root : str 
-            Naming convention for train file. If not given, will default to 'fm_*Tw*wndw_*eta*ovlp_*Tlf*lkfd_*ds*' where
-            Tw is the window length, eta is overlap fraction, Tlf is look-forward and ds are data streams.
-        savefile_type : str
-            Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
-
+        model_name: str
+            model name (e.g., FM_2w_zsc2_rsamF-zsc2_dsarF-zsc2_mfF-zsc2_hfF_WIZ-KRVZ_60dtb_0dtf)
+        
         Attributes:
         -----------
-        data : TremorData
-            Object containing tremor data of testing station
+        window : float
+            Length of data window in days.
+        stations_train: list of str
+            stations used during training 
+        Nfts : int
+            Number of most-significant features to use in classifier.
+        Ncl : int
+            Number of classifier models to train.
         dtw : datetime.timedelta
             Length of window.
         dtf : datetime.timedelta
             Length of look-forward.
+        dtb : float
+            Days looking 'back' from eruptive times (for each station)
         dt : datetime.timedelta
             Length between data samples (10 minutes).
-        dto : datetime.timedelta
-            Length of non-overlapping section of window.
         iw : int
             Number of samples in window.
         io : int
             Number of samples in overlapping section of window.
+        lab_lb  :   float
+            Days looking back to assign label '1' from eruption times
+        overlap : float
+            Fraction of overlap between adjacent windows. Set this to 1. for overlap of entire window minus 1 data point.
+        look_forward : float
+            Length of look-forward in days.
+        station_test : str
+            Seismic station providing data for testing.
+        data_streams : list
+            Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', and 'stft_X' 
+            where X is one of 'rsam', 'mf', 'hf', or 'dsar'. 
+        root:   str
+            model name for the folder and files (default). 
+        modeldir : str
+            Directory of models.
+        featdir : str
+            Directory of feature matrices.
+        datadir : str
+            Directory of data.
+        predicdir : str
+            Directory of forecast predictions.
+        plotdir : str
+            Directory to save plots from forecast predictions.
+        rootdir : str
+            Repository location on file system.
+        savefile_type : str
+            Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
         ti_forecast : datetime.datetime
             Beginning of model forecast period (in testing station)
         tf_forecast : datetime.datetime
             End of model forecast period (in testing station)
         n_jobs : int
             Number of CPUs to use for parallel tasks.
-        rootdir : str
-            Repository location on file system.
-        plotdir : str
-            Directory to save forecast plots.
-        preddir : str
-            Directory to save forecast model predictions.
+
         Methods:
         --------
-        _detect_model
-            Checks whether and what models have already been run.
-        _construct_windows
-            Create overlapping data windows for feature extraction.
-        _extract_features
-            Extract features from windowed data.
-        _extract_featuresX
-            Abstracts key feature extraction steps from bookkeeping in _extract_features
-        _get_label
-            Compute label vector.
-        _load_data
-            Load feature matrix and label vector.
-        _drop_features
-            Drop columns from feature matrix.
-        _exclude_dates
-            Drop rows from feature matrix and label vector.
-        _collect_features
-            Aggregate features used to train classifiers by frequency.
-        _model_alerts
-            Compute issued alerts for model consensus.
-        get_features
-            Return feature matrix and label vector for a given period.
-        train
-            Construct classifier models.
+        _load_models
+            Load trained forecasting models
+        _load_feat_pred
+            Load feature matrix and label vector
         forecast
-            Use classifier models to forecast eruption likelihood.
-        hires_forecast
-            Construct forecast at resolution of data.
-        _compute_CI
-            Calculate confidence interval on model output.
+            Use classifier models to forecast eruption likelihood.      
         plot_forecast
             Plot model forecast.
-        get_performance
+        _compute_CI (to implement)
+            Calculate confidence interval on model output.
+        get_performance (to implement)
             Compute quality measures of a forecast.
-        plot_accuracy
+        plot_accuracy (to implement)
             Plot performance metrics for model.
-        plot_features
-            Plot frequency of extracted features by most significant.
-        plot_feature_correlation
-            Corner plot of feature correlation.
     '''
     def __init__(self, model_name,rootdir=None,root=None,modeldir=None,
         featdir=None,datadir=None,predicdir=None,plotdir=None,savefile_type='pkl'):
@@ -1566,6 +1552,7 @@ class ForecastTransLearn(object):
                 _dic[line[0]]=line[1]
         # load 
         self.stations_train = _dic['stations']
+        self.stations_test = None
         self.data_streams = _dic['datastreams'].split(',')
         self.window = float(_dic['window'])
         self.overlap = float(_dic['overlap'])
@@ -1622,8 +1609,16 @@ class ForecastTransLearn(object):
             self.plotdir = plotdir
         #
     def _load_models(self):
-        '''read model
-        '''
+        """ Load trained forecasting models.
+            Parameters:
+            -----------
+            model_name: str
+                model name (e.g., FM_2w_zsc2_rsamF-zsc2_dsarF-zsc2_mfF-zsc2_hfF_WIZ-KRVZ_60dtb_0dtf)
+            Returns:
+            --------
+            models : list
+                list of models directions
+        """
         # logic to determine which models need to be run and which to be 
         # read from disk
         model = get_classifier(self.classifier)[0]
@@ -1631,54 +1626,83 @@ class ForecastTransLearn(object):
         models = glob('{:s}'.format(self.modeldir)+os.sep+'{:s}'.format(self.root)+os.sep+'{:s}'.format(pref)+'_*.pkl')
         return models
     def _load_feat_pred(self, ti=None, tf=None):
-        """ Load feature matrix and label vector.
+        """ Load feature matrix and label vector
+            of station_test.
             Parameters:
             -----------
-            yr : int
-                Year to load data for. If None and hires, recursion will activate.
+            ti : str, datetime.datetime
+                Beginning of forecast period (default is beginning of model analysis period).
+            tf : str, datetime.datetime
+                End of forecast period (default is end of model analysis period).
             Returns:
             --------
-            fM : pd.DataFrame
+            FM : pd.DataFrame
                 Feature matrix.
-            ys : pd.DataFrame
+            YS : pd.DataFrame
                 Label vector.
         """
         # load featurs matrix through FeatureMulti class
         FM=[]
 
         for i,datastream in enumerate(self.data_streams):
-            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+self.station_test+'_'+str(self.dtb)+'dtb_'+str(self.dtf)+'dtf'+'.csv'
-            if os.path.isfile(os.sep.join([self.featdir ,fl_nm])):
+            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+self.station_test+'_'+str(self.dtb)+'dtb_'+str(self.dtf)+'dtf'+'.'+self.savefile_type
+            if False:#os.path.isfile(os.sep.join([self.featdir ,fl_nm])):
                 # load feature matrix
                 FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
             else: 
                 #
                 feat_selc=[ft for ft in self.feat_selc if datastream in ft]
-                print('Creating feature matrix:'+fl_nm+'\n . Will be saved in: '+self.featdir)
-                feat_stas = FeaturesMulti(stations=[self.station_test], window = self.window, datastream = datastream, feat_dir=self.featdir, 
-                    dtb=self.dtb, dtf=self.dtf, lab_lb=self.lab_lb,tes_dir=self.datadir, 
-                        noise_mirror=None,data_dir=self.datadir, dt=10,feat_selc=feat_selc)
-                feat_stas.save()#fl_nm=fl_nm)
-                # load feature matrix
-                FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
-                del feat_stas
+                #print('Creating feature matrix:'+fl_nm+'\n . Will be saved in: '+self.featdir)
+                if False:
+                    feat_stas = FeaturesMulti(stations=[self.station_test], window = self.window, datastream = datastream, feat_dir=self.featdir, 
+                        dtb=self.dtb, dtf=self.dtf, lab_lb=self.lab_lb,tes_dir=self.datadir, noise_mirror=None,data_dir=self.datadir, dt=10,
+                            feat_selc=feat_selc,savefile_type=self.savefile_type)
+                    feat_stas.save()#fl_nm=fl_nm)
+                    # load feature matrix
+                    FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
+                    del feat_stas
+                if True: 
+                    feat_sta = FeaturesSta(station=self.station_test, window=self.window, datastream=datastream, 
+                        feat_dir=self.featdir, ti=self.ti_forecast, tf=self.tf_forecast, tes_dir = self.datadir, 
+                        dt=self.dt, lab_lb=self.lab_lb)  
+                    #feat_sta.save(fl_nm=fl_nm)   
+                    #FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
+                    FM.append(feat_sta.fM)
+                # load labels 
+                #_=fl_nm.find('.')
+                #_fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
+                #YS = load_dataframe(os.sep.join([self.featdir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+                #YS['time'] = pd.to_datetime(YS['time'])
+                #
+                #YS = feat_sta.ys.values[0]
+                #YS['time'] = pd.to_datetime(YS['time'])
+                #del feat_sta
+
         # currently just importing features around eruptions 
         # horizontal concat on column
         FM = pd.concat(FM, axis=1, sort=False)
         # load labels 
-        _=fl_nm.find('.')
-        _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
-        YS = load_dataframe(os.sep.join([self.featdir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-        YS['time'] = pd.to_datetime(YS['time'])
+        #_=fl_nm.find('.')
+        #_fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
+        #YS = load_dataframe(os.sep.join([self.featdir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #YS['time'] = pd.to_datetime(YS['time'])
         #
-        return FM, YS
-    def forecast(self, station_test, ti_forecast=None, tf_forecast=None, use_model=None, recalculate=False,  n_jobs=None, yr=None):
-        """ Use classifier models to forecast eruption likelihood.
+        return FM#, YS
+    def forecast(self, station_test, ti_forecast=None, tf_forecast=None, use_model=None, recalculate=False,  
+        n_jobs=None, yr=None):
+        """ Use classifier models to forecast eruption likelihood. 
+            
             Parameters:
             -----------
+            station_test : str
+                Seismic station providing data for testing.
             ti : str, datetime.datetime
                 Beginning of forecast period (default is beginning of model analysis period).
             tf : str, datetime.datetime
+                End of forecast period (default is end of model analysis period).
+            ti_forecast : str, datetime.datetime
+                Beginning of forecast period (default is beginning of model analysis period).
+            tf_forecast : str, datetime.datetime
                 End of forecast period (default is end of model analysis period).
             recalculate : bool
                 Flag indicating forecast should be recalculated, otherwise forecast will be
@@ -1693,13 +1717,14 @@ class ForecastTransLearn(object):
             --------
             consensus : pd.DataFrame
                 The model consensus, indexed by window date.
+            Note:
+            ----
+            consensus dataframe is save in directory self.predicdir
         """
         #
         #os.makedir(self.predicdir+os.sep+self.root) if not os.path.isdir(self.predicdir+os.sep+self.root) else pass
         self.station_test=station_test
-        _=self.root.split('_')
-        _.insert(6,self.station_test)
-        self.root_pred=('_').join(_)
+        self.root_pred=self.root+'_'+self.station_test
         if os.path.isdir(self.predicdir+os.sep+self.root_pred):
             pass
         else:
@@ -1742,6 +1767,7 @@ class ForecastTransLearn(object):
         if n_jobs is not None: 
             self.n_jobs = n_jobs 
         confl = '{:s}/consensus{:s}'.format(self.predicdir,'{:s}.{:s}'.format(yr_str, self.savefile_type))
+        confl = '{:s}\\consensus{:s}'.format(self.predicdir+os.sep+self.root_pred,'.{:s}'.format(self.savefile_type))
         # self.ti_forecast = self.ti_model if ti is None else datetimeify(ti)
         # self.tf_forecast = self.tf_model if tf is None else datetimeify(tf)
         # if self.tf_forecast > self.data.tf:
@@ -1760,10 +1786,10 @@ class ForecastTransLearn(object):
             pred = model.replace(self.modeldir, self.predicdir)
             pred = pred.replace(self.root, self.root_pred)
             # update filetype
-            pred = pred.replace('.pkl','{:s}.{:s}'.format(yr_str, self.savefile_type))                
+            pred = pred.replace('.pkl','.{:s}'.format(self.savefile_type))#('.pkl','{:s}.{:s}'.format(yr_str, self.savefile_type))                
 
             # check if prediction already exists
-            if False:#os.path.isfile(pred):
+            if os.path.isfile(pred):
                 if recalculate:
                     # delete predictions to be recalculated
                     os.remove(pred)
@@ -1785,7 +1811,9 @@ class ForecastTransLearn(object):
         # generate new predictions
         if len(run_predictions)>0:
             # load feature matrix
-            fM,_ = self._load_feat_pred(self.ti_forecast, self.tf_forecast)
+            print('Loading features')
+            fM = self._load_feat_pred(self.ti_forecast, self.tf_forecast) #fM,_
+            print('Done')
             #
             fM = fM.fillna(1.e-8)
             if fM.shape[0] == 0: return pd.DataFrame([],columns=['consensus'])
@@ -1803,7 +1831,7 @@ class ForecastTransLearn(object):
             # predict_models(fM, model_path, run_predictions)
             # not parallelized for now
             ys += predict_models(fM, model_path, run_predictions, yr)
-            _ys.append(_)
+            #_ys.append(_)
             # if False:
             #     for i, y in enumerate(mapper(f, run_predictions)):
             #         cf = (i+1)/len(run_predictions)
@@ -1821,9 +1849,9 @@ class ForecastTransLearn(object):
         
         # condense data frames and write output
         ys = pd.concat(ys, axis=1, sort=False)
-        _ys = pd.concat(_ys, axis=1, sort=False)
+        #_ys = pd.concat(_ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
-        forecast = pd.DataFrame(consensus, columns=['consensus'], index=_ys['time'])
+        forecast = pd.DataFrame(consensus, columns=['consensus'], index=fM.index)#index=ys)#_ys['time'])
         #
         #forecast['time']=_ys['time']
         #forecast.rename(columns={'time': 'ref'}, inplace=True)
@@ -1922,7 +1950,7 @@ class ForecastTransLearn(object):
                 
         #         if tii > ti:
         #             axs[-1].fill_between([tii, tii+self.dtf], [0,0], [1,1], color='y', zorder=3)
-                
+     
         for ax in axs:
             ax.fill_between([], [], [], color='y', label='eruption forecast')
         axs[-1].legend()
@@ -1936,6 +1964,70 @@ class ForecastTransLearn(object):
             plt.savefig(save, bbox_inches=extent)
         #
         plt.close(f)
+    # to implement
+    def get_performance(self, t, y, thresholds, ialert=None, dti=None):
+        ''' Compute performance metrics for a forecast.
+            Parameters:
+            -----------
+            t : array-like
+                Time vector corresponding to model consensus.
+            y : array-like
+                Model consensus.
+            thresholds: float
+                Consensus values above which an alert is issued.
+            ialert : int
+                Number of data windows spanning an alert period.
+            dti : datetime.timedelta
+                Length of window overlap.
+            Returns:
+            --------
+            FP : int
+                Number of false positives at each threshold level.
+            FN : int
+                Number of false negatves at each threshold level.
+            TP : int
+                Number of true positives at each threshold level.
+            TN : int
+                Number of true negatives at each threshold level.
+            dur : float
+                Proportion of time spent inside an alert.
+            MCC : float
+                Matthew's correlation coefficient.
+        '''
+        # time series
+        makedir(self.preddir)
+        label_file = self.preddir+'/labels.pkl'
+        if not os.path.isfile(label_file):
+            ys = np.array([self.data._is_eruption_in(days=self.look_forward, from_time=ti) for ti in pd.to_datetime(t)])
+            save_dataframe(ys, label_file)
+        self._ys = load_dataframe(label_file)
+
+        if ialert is None:
+            ialert = self.look_forward/((1-self.overlap)*self.window)
+        if dti is None:
+            dti = timedelta(days=(1-self.overlap)*self.window)
+        FP, FN, TP, TN, dur, MCC=[np.zeros(len(thresholds)) for i in range(6)]
+        for j,threshold in enumerate(thresholds):
+            if threshold == 0:
+                FP[j]=int(1e8); dur[j]=1.; TP[j]=len(self.data.tes); TN[j]=1
+            else:
+                FP[j], FN[j], TP[j], TN[j], dur[j], MCC[j] = self._model_alerts(t, y, threshold, ialert, dti)
+
+        return FP, FN, TP, TN, dur, MCC
+    def _compute_CI(self, y):
+        """ Computes a 95% confidence interval of the model consensus.
+            Parameters:
+            -----------
+            y : numpy.array
+                Model consensus returned by ForecastModel.forecast.
+            
+            Returns:
+            --------
+            ci : numpy.array
+                95% confidence interval of the model consensus
+        """
+        ci = 1.96*(np.sqrt(y*(1-y)/self.Ncl))
+        return ci
     pass
 
 # testing
@@ -1972,11 +2064,11 @@ if __name__ == "__main__":
             save=r'{:s}/forecast.png'.format(fm.plotdir))
         pass
     
-    if True: # ForecastTransLearn class
+    if False: # ForecastTransLearn class
         #
         datastream = ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']#['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
-        stations=['WIZ','KRVZ']
-        dtb = 30
+        stations=['WIZ']#,'KRVZ']
+        dtb = 60
         dtf = 0
         win=2.
         #
@@ -1991,11 +2083,18 @@ if __name__ == "__main__":
             modeldir=modeldir,featdir=featdir,predicdir=predicdir, plotdir=plotdir, savefile_type='csv') # 
         # run forec
         station_test='FWVZ'
-        ti_forecast='2006-07-01'
-        tf_forecast='2009-12-31'#'2012-12-31'
-        ys = fm0.forecast(station_test=station_test,ti_forecast=ti_forecast, tf_forecast=tf_forecast, 
-            yr=2012, recalculate=False)
-        fm0.plot_forecast(ys, threshold=0.75, xlim = [ti_forecast, tf_forecast])
+        ti_forecast='2007-09-01'
+        tf_forecast='2007-10-01'#'2012-12-31'
+        #
+        station_test='WIZ'
+        ti_forecast='2019-11-01'
+        tf_forecast='2019-12-31'#'2012-12-31'
+        if True: # run forecast
+            ys = fm0.forecast(station_test=station_test,ti_forecast=ti_forecast, tf_forecast=tf_forecast, 
+                recalculate=True)#, yr=2007)
+            #fm0.plot_forecast(ys, threshold=0.75, xlim = [ti_forecast, tf_forecast])
+        if False: # performance
+            pass 
 
 
 

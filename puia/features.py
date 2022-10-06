@@ -388,7 +388,7 @@ class FeaturesMulti(object):
         self.tes = {}
         for sta in self.stations:
             # get eruptions
-            fl_nm = os.sep.join([tes_dir,sta+'_eruptive_periods.txt'])
+            fl_nm = os.sep.join([self.tes_dir,sta+'_eruptive_periods.txt'])
             with open(fl_nm,'r') as fp:
                 self.tes[sta] = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
         #
@@ -589,10 +589,10 @@ class FeaturesMulti(object):
                 'FM_'+window+'w_'+datastream+'_'+stations(-)+'_'+dtb+'_'+dtf+'dtf'+'.'+file_type
                 e.g., FM_2w_zsc2_hfF_WIZ-KRVZ_60dtb_0dtf.csv
         '''
-        if noise_mirror:
-            self.noise_mirror=True
-        else:
-            self.noise_mirror=False
+        # if noise_mirror:
+        #     self.noise_mirror=True
+        # else:
+        #     self.noise_mirror=False
         # assing attributes from file name
         def _load_atrib_from_file(fl_nm): 
             _ = fl_nm.split('.')[0]
@@ -613,17 +613,17 @@ class FeaturesMulti(object):
         self.ys = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
         self.ys['time'] = pd.to_datetime(self.ys['time'])
         #
-        if self.noise_mirror:
-            fl_nm=fl_nm[:_]+'_nmirror'+fl_nm[_:]
-            # load feature matrix
-            self.fM_mirror = load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, 
-                infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-            # load labels 
-            _=fl_nm.find('.')
-            _fl_nm=fl_nm[:_]+'_labels'+_fl_nm[_-1:]
-            self.ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, 
-                infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-            self.ys_mirror['time'] = pd.to_datetime(self.ys['time'])
+        # if self.noise_mirror:
+        #     fl_nm=fl_nm[:_]+'_nmirror'+fl_nm[_:]
+        #     # load feature matrix
+        #     self.fM_mirror = load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, 
+        #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #     load labels 
+        #     _=fl_nm.find('.')
+        #     _fl_nm=fl_nm[:_]+'_labels'+_fl_nm[_-1:]
+        #     self.ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, 
+        #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #     self.ys_mirror['time'] = pd.to_datetime(self.ys['time'])
         #
     def svd(self):
         ''' Compute SVD (singular value decomposition) on feature matrix. 
@@ -784,13 +784,13 @@ if __name__ == "__main__":
         if True: # create combined feature matrix
             stations=['WIZ']#,'FWVZ']#,'KRVZ']#,'VNSS','BELO','GOD','TBTN','MEA01']
             win = 2.
-            dtb = 4
+            dtb = 90
             dtf = 0
-            datastream = 'zsc2_dsarF'
+            datastream = 'zsc2_rsamF'
             ft = ['zsc2_dsarF__median']
             feat_stas = FeaturesMulti(stations=stations, window = win, datastream = datastream, feat_dir=feat_dir, 
-                dtb=dtb, dtf=dtf, lab_lb=2,tes_dir=datadir, noise_mirror=True, data_dir=datadir, 
-                    dt=10,savefile_type='csv',feat_selc=ft)#fl_lt
+                dtb=dtb, dtf=dtf, lab_lb=7,tes_dir=datadir, noise_mirror=False, data_dir=datadir, 
+                    dt=10,savefile_type='csv',feat_selc=None)#fl_lt
             #fl_nm = 'FM_'+str(int(win))+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
             feat_stas.save()#fl_nm=fl_nm)
             #

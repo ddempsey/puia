@@ -2,7 +2,9 @@
 # general imports
 import os, ast
 from inspect import getfile, currentframe
-from .utilities import DummyClass
+from utilities import DummyClass
+from model import TrainModelCombined
+from forecast import ForecastTransLearn
 
 def test_data():
     from data import TremorData
@@ -31,4 +33,77 @@ def run_tests(testname='all'):
         raise ValueError('test function \'{:s}\' not found'.format(testname))
 
     eval('{:s}()'.format(testname))
+
+
+# testing
+if __name__ == "__main__":
+    if False:
+        test_data()
+    if True:
+        # testing TL forecasting 
+        if False:
+            rootdir=r'U:\Research\EruptionForecasting\eruptions'
+            datadir=r'U:\Research\EruptionForecasting\eruptions\data' 
+            featdir=r'U:\Research\EruptionForecasting\eruptions\features'
+            modeldir=r'U:\Research\EruptionForecasting\eruptions\models'
+            predicdir=r'U:\Research\EruptionForecasting\eruptions\predictions'
+            plotdir=r'U:\Research\EruptionForecasting\eruptions\plots'
+        if True:
+            rootdir=r'D:\EruptionForecasting'
+            datadir=r'D:\EruptionForecasting\data' 
+            featdir=r'D:\EruptionForecasting\features'
+            modeldir=r'D:\EruptionForecasting\models'
+            predicdir=r'D:\EruptionForecasting\predictions'
+            plotdir=r'D:\EruptionForecasting\plots'
+        # feat selection
+        fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts' 
+        # 
+        datastream = ['zsc2_rsamF','zsc2_dsarF']#,'zsc2_mfF','zsc2_hfF']
+        stations=['WIZ']#,'FWVZ'] # this could contain multiple stations
+        dtb = 30 # looking back from eruption times
+        dtf = 0  # looking forward from eruption times
+        win=2.   # window length
+        lab_lb=4.# days to label as eruptive before the eruption times 
+        #
+        root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'
+        #
+        ## (1) training models with 'stations'
+        # combined features matrices are save in featdir in a folder named by the attributes 
+        
+        fm0 = TrainModelCombined(stations=stations,window=win, overlap=1., dtb=dtb, dtf=dtf, datastream=datastream,
+            rootdir=rootdir,root=root,feat_dir=featdir, data_dir=datadir, tes_dir=datadir,feat_selc=fl_lt, model_dir=modeldir,
+                lab_lb=lab_lb,noise_mirror=True, savefile_type='csv') # 
+        #
+        fm0.train(Nfts=20, Ncl=500, retrain=True, classifier="DT", random_seed=0, method=0.75, n_jobs=4)
+
+        ## (2) Forecasting on test station 
+        # usgin model created from 'stations' to predict on a diferent station called 'station_test'
+        model_name=root # model to be use
+        fm0 = ForecastTransLearn(model_name,rootdir=rootdir,root=root,datadir=datadir,
+            modeldir=modeldir,featdir=featdir,predicdir=predicdir, plotdir=plotdir, savefile_type='csv') # 
+        # run forec
+        station_test='FWVZ'         # only one station
+        ti_forecast='2006-07-01'   
+        tf_forecast='2006-12-31'
+        #
+        ys = fm0.forecast(station_test=station_test,ti_forecast=ti_forecast, tf_forecast=tf_forecast, 
+            recalculate=True) # generate a consensus file in predicdir folder
+        # Need to check that the model.predict in line 153 in predict_models function (forecast.py) is working fine. 
+        '''
+        To do Feature class
+            - method to mark rows with imcomplete data 
+            - check sensitivity to random number seed for noise mirror (FeaturesMulti._load_tes())
+            - criterias for feature selection (see FeaturesSta.reduce())
+
+        To do TrainModelCombined class"
+            - test that is working correctly
+
+        To do ForecastTransLearn clas:
+            - test that is working correctly
+            - format to save dataframe with metadata
+            - add a method to forecast accuracy 
+            - methods to implement: get_performance, _compute_CI, plot_performance
+        '''
+
+
 

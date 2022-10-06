@@ -74,6 +74,10 @@ n_jobs = 0
 Here are two feature clases that operarte a diferent levels. 
 FeatureSta oject manages single stations, and FeaturesMulti object manage multiple stations using FeatureSta objects. 
 This objects just manipulates feature matrices that already exist. 
+
+Todo:
+- have a longer conversation on feat selection 
+- need a forecast method (?)
 '''
 
 def get_classifier(classifier):
@@ -165,18 +169,20 @@ def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, me
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
 
 class TrainModelCombined(object):
-    ''' Object for train forecast models. Training involve multiple stations, and multiple seismic datastreams. 
+    ''' Object for train forecast models. 
+        Training involve multiple stations, and multiple seismic datastreams.
+        Models are saved to be used later by ForecastTransLearn class. 
 
-    Constructor arguments:
+    Constructor arguments (and attributes):
     ----------------------
+    stations : list of str
+        Seismic stations providing data for modelling.
     window : float
         Length of data window in days.
     overlap : float
         Fraction of overlap between adjacent windows. Set this to 1. for overlap of entire window minus 1 data point.
     look_forward : float
         Length of look-forward in days.
-    stations : str
-        Seismic stations providing data for modelling.
     feature_root : str
         Root for feature naming.
     feature_dir : str
@@ -190,6 +196,10 @@ class TrainModelCombined(object):
 
     Attributes:
     -----------
+    Nfts : int
+        Number of most-significant features to use in classifier.
+    Ncl : int
+        Number of classifier models to train.
     dtw : datetime.timedelta
         Length of window.
     dtf : datetime.timedelta
@@ -200,46 +210,51 @@ class TrainModelCombined(object):
         Length between data samples (10 minutes).
     dto : datetime.timedelta
         Length of non-overlapping section of window.
+    lab_lb  :   float
+        Days looking back to assign label '1' from eruption times
     iw : int
         Number of samples in window.
     io : int
         Number of samples in overlapping section of window.
-
     n_jobs : int
         Number of CPUs to use for parallel tasks.
+    feat_dir: str
+        Repository location of feature matrices.
+    root:   str
+        model name for the folder and files (default). 
     rootdir : str
         Repository location on file system.
-    preddir : str
-        Directory to save forecast model predictions.
-    
+    modeldir : str
+        Repository location to save model
+    fM : pandas.DataFrame
+        Feature matrix of combined time series for multiple stations, for periods around their eruptive times.
+        Periods are define by 'dtb' and 'dtf'. Eruptive matrix sections are concatenated. Record of labes and times
+        are keept in 'ys'. 
+    ys  :   pandas.DataFrame
+        Binary labels and times for rows in fM. Index correspond to an increasing integer (reference number)
+        Dates for each row in fM are kept in column 'time'
+    noise_mirror    :   Boolean
+        Generate a mirror feature matrix with exact same dimentions as fM (and ys) but for random non-eruptive times.
+        Seed is set on  
+    tes : dictionary
+        Dictionary of eruption times (multiple stations). 
+        Keys are stations name and values are list of eruptive times.
+    savefile_type : str
+        Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
+        
     Methods:
     --------
-    _detect_model
-        Checks whether and what models have already been run.
-    _construct_windows
-        Create overlapping data windows for feature extraction.
-    _extract_features
-        Extract features from windowed data.
-    _extract_featuresX
-        Abstracts key feature extraction steps from bookkeeping in _extract_features
-    _get_label
-        Compute label vector.
-    _load_data
+    _load_feat
         Load feature matrix and label vector.
-    _model_alerts
-        Compute issued alerts for model consensus.
-
+    _drop_features
+        Drop columns from feature matrix.
+    _collect_features
+        Aggregate features used to train classifiers by frequency.
     train
         Construct classifier models.
-    plot_accuracy
-        Plot performance metrics for model.
-    plot_features
-        Plot frequency of extracted features by most significant.
-    plot_feature_correlation
-        Corner plot of feature correlation.
     '''
     def __init__(self, stations=None, window = 2., overlap=.75, datastream = None, feat_dir=None, 
-        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, 
+        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, model_dir=None,
         dt=None, lab_lb=2.,root=None,drop_features=None,savefile_type='pkl',feature_root=None,
         rootdir=None):
         self.stations=stations
@@ -247,7 +262,6 @@ class TrainModelCombined(object):
         self.overlap = overlap
         self.stations=stations
         self.look_forward = dtf*day
-        self.data_dir=tes_dir
         self.dtw = timedelta(days=self.window)
         self.dto = (1.-self.overlap)*self.dtw
         self.iw = int(self.window*6*24)         
@@ -288,7 +302,10 @@ class TrainModelCombined(object):
         else:
             self.rootdir = rootdir
         self.plotdir = r'{:s}/plots/{:s}'.format(self.rootdir, self.root)
-        self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
+        if model_dir:
+            self.modeldir = model_dir+os.sep+self.root
+        else:
+            self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
         if feat_dir is None:
             self.feat_dir = r'{:s}/features'.format(self.rootdir)
         else:
@@ -302,51 +319,55 @@ class TrainModelCombined(object):
         """ Load feature matrix and label vector.
             Parameters:
             -----------
-            yr : int
-                Year to load data for. If None and hires, recursion will activate.
             Returns:
             --------
-            fM : pd.DataFrame
+            FM : pd.DataFrame
                 Feature matrix.
-            ys : pd.DataFrame
+            YS : pd.DataFrame
                 Label vector.
+            Note:
+            -----
+            If noise mirror is True, both standard and mirror matrices 
+            are loaded in FM and YS for training. 
         """
         # load featurs matrix through FeatureMulti class
         FM=[]
         _FM=[]
         for i,datastream in enumerate(self.datastream):
-            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+'-'.join(self.stations)+'_'+str(self.dtb.days)+'dtb_'+str(self.dtf.days)+'dtf'+'.csv'
+            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+'-'.join(self.stations)+'_'+str(self.dtb.days)+'dtb_'+str(self.dtf.days)+'dtf'+'.'+self.savefile_type
             if not os.path.isfile(os.sep.join([self.feat_dir,fl_nm])):
                 print('Creating feature matrix:'+fl_nm+'\n . Will be saved in: '+self.feat_dir)
                 feat_stas = FeaturesMulti(stations=self.stations, window = self.window, datastream = datastream, feat_dir=self.feat_dir, 
-                    dtb=self.dtb.days, dtf=self.dtf.days, lab_lb=7,tes_dir=tes_dir, feat_selc=self.feat_selc, 
-                        noise_mirror=self.noise_mirror, data_dir=self.tes_dir, dt=10)
+                    dtb=self.dtb.days, dtf=self.dtf.days, lab_lb=self.lab_lb,tes_dir=self.tes_dir, feat_selc=self.feat_selc, 
+                        noise_mirror=self.noise_mirror, data_dir=self.tes_dir, dt=10,savefile_type=self.savefile_type)
                 feat_stas.save()#fl_nm=fl_nm)
+                FM.append(feat_stas.fM)
+                del feat_stas
             else:
                 # load feature matrix
                 FM.append(load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
-                if self.noise_mirror:
-                    _nm=fl_nm[:-4]+'_nmirror'+'.csv'
-                    _FM.append(load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
+                # if self.noise_mirror:
+                #     _nm=fl_nm[:-4]+'_nmirror'+'.csv'
+                #     _FM.append(load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
         # horizontal concat on column
         FM = pd.concat(FM, axis=1, sort=False)
-        if self.noise_mirror:
-            _FM = pd.concat(_FM, axis=1, sort=False)
-            FM=pd.concat([FM,_FM], axis=0, sort=False)
-            # drop columns with NaN (NaN columns not remove from noise matrix)
-            FM=FM.drop(columns=FM.columns[FM.isna().any()].tolist())
+        # if self.noise_mirror:
+        #     _FM = pd.concat(_FM, axis=1, sort=False)
+        #     FM=pd.concat([FM,_FM], axis=0, sort=False)
+        #     # drop columns with NaN (NaN columns not remove from noise matrix)
+        #     FM=FM.drop(columns=FM.columns[FM.isna().any()].tolist())
         # load labels 
         _=fl_nm.find('.')
         _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
         YS = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
         YS['time'] = pd.to_datetime(YS['time'])
-        if self.noise_mirror:
-            _nm=fl_nm[:-4]+'_nmirror'+'_labels'+'.csv'
-            ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, 
-                infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-            ys_mirror['time'] = pd.to_datetime(ys_mirror['time'])
-            # concatenate with eruptive dataframe FM
-            YS = pd.concat([YS,ys_mirror], axis=0, sort=False)
+        # if self.noise_mirror:
+        #     _nm=fl_nm[:-4]+'_nmirror'+'_labels'+'.csv'
+        #     ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, 
+        #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #     ys_mirror['time'] = pd.to_datetime(ys_mirror['time'])
+        #     # concatenate with eruptive dataframe FM
+        #     YS = pd.concat([YS,ys_mirror], axis=0, sort=False)
         # #
         return FM, YS
     def _drop_features(self, X, drop_features):
@@ -410,7 +431,7 @@ class TrainModelCombined(object):
         with open(save, 'w') as fp:
             _ = [fp.write('{:d},{:s}\n'.format(freq,ft)) for freq,ft in zip(freqs,labels)]
         return labels, freqs
-    def train(self, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
+    def train(self, Nfts=20, Ncl=500, retrain=None, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, method=0.75):
         """ Construct classifier models.
 
@@ -561,25 +582,23 @@ if __name__ == "__main__":
             save=r'{:s}/forecast.png'.format(fm.plotdir))
         pass
     
-    if True: # TrainModelMulti class
+    if False: # TrainModelMulti class
         #
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
-        #
-        datastream = ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']#['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
-        stations=['WIZ','KRVZ']
-        dtb = 60
-        dtf = 0
-        win=2.
-        #
-        # load feature matrices for WIZ and FWVZ
-        #rootdir='/'.join(getfile(currentframe()).split(os.sep)[:-2])
+        ## (1) Create model
         if True:
+            datastream = ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']
+            stations=['WIZ']#,'KRVZ']
+            dtb = 60 # looking back from eruption times
+            dtf = 0  # looking forward from eruption times
+            win=2.   # window length
+            lab_lb=4.# days to label as eruptive before the eruption times 
+            #
             rootdir=r'U:\Research\EruptionForecasting\eruptions'
-        if False:
-            rootdir=r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\puia_rep\puia\features'
-        root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'
-        #
-        fm0 = TrainModelCombined(stations=stations,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
-            rootdir=rootdir,root=root,feat_dir=feat_dir, data_dir=tes_dir,feat_selc=fl_lt, noise_mirror=True, savefile_type='csv') # 
-        #
-        fm0.train(Nfts=20, Ncl=100, retrain=True, classifier="DT", random_seed=0, method=0.75, n_jobs=0)
+            root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'
+            #
+            fm0 = TrainModelCombined(stations=stations,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
+                rootdir=rootdir,root=root,feat_dir=feat_dir, data_dir=tes_dir,feat_selc=fl_lt, 
+                    lab_lb=lab_lb,noise_mirror=True) # 
+            #
+            fm0.train(Nfts=20, Ncl=300, retrain=True, classifier="DT", random_seed=0, method=0.75, n_jobs=4)
