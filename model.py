@@ -241,6 +241,8 @@ class TrainModelCombined(object):
         Keys are stations name and values are list of eruptive times.
     savefile_type : str
         Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
+    no_erup : list of two 
+        Remove eruption from trainning. Need to specified station and number of eruption (e.g., ['WIZ',4]; eruption number, as 4, start counting from 0)
         
     Methods:
     --------
@@ -254,15 +256,14 @@ class TrainModelCombined(object):
         Construct classifier models.
     '''
     def __init__(self, stations=None, window = 2., overlap=.75, datastream = None, feat_dir=None, 
-        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, 
+        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, model_dir=None,
         dt=None, lab_lb=2.,root=None,drop_features=None,savefile_type='pkl',feature_root=None,
-        rootdir=None):
+        rootdir=None, no_erup=None):
         self.stations=stations
         self.window=window
         self.overlap = overlap
         self.stations=stations
         self.look_forward = dtf*day
-        self.data_dir=tes_dir
         self.dtw = timedelta(days=self.window)
         self.dto = (1.-self.overlap)*self.dtw
         self.iw = int(self.window*6*24)         
@@ -303,13 +304,17 @@ class TrainModelCombined(object):
         else:
             self.rootdir = rootdir
         self.plotdir = r'{:s}/plots/{:s}'.format(self.rootdir, self.root)
-        self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
+        if model_dir:
+            self.modeldir = model_dir+os.sep+self.root
+        else:
+            self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
         if feat_dir is None:
             self.feat_dir = r'{:s}/features'.format(self.rootdir)
         else:
             self.featdir = feat_dir
         self.featfile = lambda ds,yr: (r'{:s}/fm_{:3.2f}w_{:s}_{:s}_{:d}.{:s}'.format(self.feat_dir,self.window,ds,self.station,yr,self.savefile_type))
         self.preddir = r'{:s}/predictions/{:s}'.format(self.rootdir, self.root)
+        self.no_erup=no_erup
         #
         #self._load_tes(tes_dir) # create self.tes (and self.tes_mirror) 
         #self._load() # create dataframe from feature matrices
@@ -332,38 +337,42 @@ class TrainModelCombined(object):
         FM=[]
         _FM=[]
         for i,datastream in enumerate(self.datastream):
-            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+'-'.join(self.stations)+'_'+str(self.dtb.days)+'dtb_'+str(self.dtf.days)+'dtf'+'.csv'
+            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+'-'.join(self.stations)+'_'+str(self.dtb.days)+'dtb_'+str(self.dtf.days)+'dtf'+'.'+self.savefile_type
             if not os.path.isfile(os.sep.join([self.feat_dir,fl_nm])):
                 print('Creating feature matrix:'+fl_nm+'\n . Will be saved in: '+self.feat_dir)
+                if self.no_erup:
+                    print('Eruption not considered:\t'+self.no_erup[0]+'\t'+str(self.no_erup[1]))
                 feat_stas = FeaturesMulti(stations=self.stations, window = self.window, datastream = datastream, feat_dir=self.feat_dir, 
-                    dtb=self.dtb.days, dtf=self.dtf.days, lab_lb=7,tes_dir=tes_dir, feat_selc=self.feat_selc, 
-                        noise_mirror=self.noise_mirror, data_dir=self.tes_dir, dt=10)
+                    dtb=self.dtb.days, dtf=self.dtf.days, lab_lb=self.lab_lb,tes_dir=self.tes_dir, feat_selc=self.feat_selc, 
+                        noise_mirror=self.noise_mirror, data_dir=self.tes_dir, dt=10,savefile_type=self.savefile_type,no_erup=self.no_erup)
                 feat_stas.save()#fl_nm=fl_nm)
+                FM.append(feat_stas.fM)
+                del feat_stas
             else:
                 # load feature matrix
                 FM.append(load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
-                if self.noise_mirror:
-                    _nm=fl_nm[:-4]+'_nmirror'+'.csv'
-                    _FM.append(load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
+                # if self.noise_mirror:
+                #     _nm=fl_nm[:-4]+'_nmirror'+'.csv'
+                #     _FM.append(load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
         # horizontal concat on column
         FM = pd.concat(FM, axis=1, sort=False)
-        if self.noise_mirror:
-            _FM = pd.concat(_FM, axis=1, sort=False)
-            FM=pd.concat([FM,_FM], axis=0, sort=False)
-            # drop columns with NaN (NaN columns not remove from noise matrix)
-            FM=FM.drop(columns=FM.columns[FM.isna().any()].tolist())
+        # if self.noise_mirror:
+        #     _FM = pd.concat(_FM, axis=1, sort=False)
+        #     FM=pd.concat([FM,_FM], axis=0, sort=False)
+        #     # drop columns with NaN (NaN columns not remove from noise matrix)
+        #     FM=FM.drop(columns=FM.columns[FM.isna().any()].tolist())
         # load labels 
         _=fl_nm.find('.')
         _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
         YS = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
         YS['time'] = pd.to_datetime(YS['time'])
-        if self.noise_mirror:
-            _nm=fl_nm[:-4]+'_nmirror'+'_labels'+'.csv'
-            ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, 
-                infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-            ys_mirror['time'] = pd.to_datetime(ys_mirror['time'])
-            # concatenate with eruptive dataframe FM
-            YS = pd.concat([YS,ys_mirror], axis=0, sort=False)
+        # if self.noise_mirror:
+        #     _nm=fl_nm[:-4]+'_nmirror'+'_labels'+'.csv'
+        #     ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_nm]), index_col=0, parse_dates=False, 
+        #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #     ys_mirror['time'] = pd.to_datetime(ys_mirror['time'])
+        #     # concatenate with eruptive dataframe FM
+        #     YS = pd.concat([YS,ys_mirror], axis=0, sort=False)
         # #
         return FM, YS
     def _drop_features(self, X, drop_features):
@@ -427,7 +436,7 @@ class TrainModelCombined(object):
         with open(save, 'w') as fp:
             _ = [fp.write('{:d},{:s}\n'.format(freq,ft)) for freq,ft in zip(freqs,labels)]
         return labels, freqs
-    def train(self, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
+    def train(self, Nfts=20, Ncl=500, retrain=None, classifier="DT", random_seed=0,
             drop_features=[], n_jobs=6, method=0.75):
         """ Construct classifier models.
 
@@ -498,6 +507,8 @@ class TrainModelCombined(object):
             for i,sta in enumerate(self.stations):
                 f.write(sta+',') if i<len(self.stations)-1 else f.write(sta)
             f.write('\n')
+            if self.no_erup:
+                f.write('no_erup\t'+self.no_erup[0]+'\t'+str(self.no_erup[1])+'\n')
             f.write('datastreams\t')
             for i,ds in enumerate(self.datastream):
                 f.write(ds+',') if i<len(self.datastream)-1 else f.write(ds)
@@ -578,25 +589,23 @@ if __name__ == "__main__":
             save=r'{:s}/forecast.png'.format(fm.plotdir))
         pass
     
-    if True: # TrainModelMulti class
+    if False: # TrainModelMulti class
         #
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
-        #
-        datastream = ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']#['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
-        stations=['WIZ','KRVZ']
-        dtb = 60
-        dtf = 0
-        win=2.
-        #
-        # load feature matrices for WIZ and FWVZ
-        #rootdir='/'.join(getfile(currentframe()).split(os.sep)[:-2])
+        ## (1) Create model
         if True:
+            datastream = ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']
+            stations=['WIZ']#,'KRVZ']
+            dtb = 60 # looking back from eruption times
+            dtf = 0  # looking forward from eruption times
+            win=2.   # window length
+            lab_lb=4.# days to label as eruptive before the eruption times 
+            #
             rootdir=r'U:\Research\EruptionForecasting\eruptions'
-        if False:
-            rootdir=r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\puia_rep\puia\features'
-        root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'
-        #
-        fm0 = TrainModelCombined(stations=stations,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
-            rootdir=rootdir,root=root,feat_dir=feat_dir, data_dir=tes_dir,feat_selc=fl_lt, noise_mirror=True, savefile_type='csv') # 
-        #
-        fm0.train(Nfts=20, Ncl=100, retrain=True, classifier="DT", random_seed=0, method=0.75, n_jobs=0)
+            root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'
+            #
+            fm0 = TrainModelCombined(stations=stations,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
+                rootdir=rootdir,root=root,feat_dir=feat_dir, data_dir=tes_dir,feat_selc=fl_lt, 
+                    lab_lb=lab_lb,noise_mirror=True) # 
+            #
+            fm0.train(Nfts=20, Ncl=300, retrain=True, classifier="DT", random_seed=0, method=0.75, n_jobs=4)

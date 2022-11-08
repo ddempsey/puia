@@ -135,11 +135,11 @@ def predict_models(fM, model_path, flps,yr):
     ''' helper function to parallelise model forecasting
     '''
     ypdfs = []
-    for flp in tqdm(flps, desc='forecasting {:d}'.format(yr)):
+    for flp in tqdm(flps, desc='forecasting'):# {:d}'.format(yr)):
         flp,fl = flp
         # print('start:',flp)
 
-        if os.path.isfile(fl):
+        if os.path.isfile(fl): # load prediction
             ypdf0 = load_dataframe(fl, index_col='time', infer_datetime_format=True, parse_dates=['time'])
 
         num = flp.split(os.sep)[-1].split('.')[0].split('_')[-1]
@@ -1146,7 +1146,7 @@ class ForecastModel(object):
         # condense data frames and write output
         ys = pd.concat(ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
-        forecast = pd.DataFrame(consensus, columns=['consensus'], index=ys.index)
+        forecast = pd.DataFrame(consensus, columns=['consensus'], index=self.fM.index)#ys.index)
 
         save_dataframe(forecast, confl, index=True, index_label='time')
         
@@ -1645,31 +1645,49 @@ class ForecastTransLearn(object):
         FM=[]
 
         for i,datastream in enumerate(self.data_streams):
-            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+self.station_test+'_'+str(self.dtb)+'dtb_'+str(self.dtf)+'dtf'+'.csv'
-            if os.path.isfile(os.sep.join([self.featdir ,fl_nm])):
+            fl_nm='FM_'+str(int(self.window))+'w_'+datastream+'_'+self.station_test+'_'+str(self.dtb)+'dtb_'+str(self.dtf)+'dtf'+'.'+self.savefile_type
+            if False:#os.path.isfile(os.sep.join([self.featdir ,fl_nm])):
                 # load feature matrix
                 FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
             else: 
                 #
                 feat_selc=[ft for ft in self.feat_selc if datastream in ft]
-                print('Creating feature matrix:'+fl_nm+'\n . Will be saved in: '+self.featdir)
-                feat_stas = FeaturesMulti(stations=[self.station_test], window = self.window, datastream = datastream, feat_dir=self.featdir, 
-                    dtb=self.dtb, dtf=self.dtf, lab_lb=self.lab_lb,tes_dir=self.datadir, 
-                        noise_mirror=None,data_dir=self.datadir, dt=10,feat_selc=feat_selc)
-                feat_stas.save()#fl_nm=fl_nm)
-                # load feature matrix
-                FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
-                del feat_stas
+                #print('Creating feature matrix:'+fl_nm+'\n . Will be saved in: '+self.featdir)
+                if False:
+                    feat_stas = FeaturesMulti(stations=[self.station_test], window = self.window, datastream = datastream, feat_dir=self.featdir, 
+                        dtb=self.dtb, dtf=self.dtf, lab_lb=self.lab_lb,tes_dir=self.datadir, noise_mirror=None,data_dir=self.datadir, dt=10,
+                            feat_selc=feat_selc,savefile_type=self.savefile_type)
+                    feat_stas.save()#fl_nm=fl_nm)
+                    # load feature matrix
+                    FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
+                    del feat_stas
+                if True: 
+                    feat_sta = FeaturesSta(station=self.station_test, window=self.window, datastream=datastream, 
+                        feat_dir=self.featdir, ti=self.ti_forecast, tf=self.tf_forecast, tes_dir = self.datadir, 
+                        dt=self.dt, lab_lb=self.lab_lb)  
+                    #feat_sta.save(fl_nm=fl_nm)   
+                    #FM.append(load_dataframe(os.sep.join([self.featdir,fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None))
+                    FM.append(feat_sta.fM)
+                # load labels 
+                #_=fl_nm.find('.')
+                #_fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
+                #YS = load_dataframe(os.sep.join([self.featdir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+                #YS['time'] = pd.to_datetime(YS['time'])
+                #
+                #YS = feat_sta.ys.values[0]
+                #YS['time'] = pd.to_datetime(YS['time'])
+                #del feat_sta
+
         # currently just importing features around eruptions 
         # horizontal concat on column
         FM = pd.concat(FM, axis=1, sort=False)
         # load labels 
-        _=fl_nm.find('.')
-        _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
-        YS = load_dataframe(os.sep.join([self.featdir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-        YS['time'] = pd.to_datetime(YS['time'])
+        #_=fl_nm.find('.')
+        #_fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
+        #YS = load_dataframe(os.sep.join([self.featdir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #YS['time'] = pd.to_datetime(YS['time'])
         #
-        return FM, YS
+        return FM#, YS
     def forecast(self, station_test, ti_forecast=None, tf_forecast=None, use_model=None, recalculate=False,  
         n_jobs=None, yr=None):
         """ Use classifier models to forecast eruption likelihood. 
@@ -1749,6 +1767,7 @@ class ForecastTransLearn(object):
         if n_jobs is not None: 
             self.n_jobs = n_jobs 
         confl = '{:s}/consensus{:s}'.format(self.predicdir,'{:s}.{:s}'.format(yr_str, self.savefile_type))
+        confl = '{:s}\\consensus{:s}'.format(self.predicdir+os.sep+self.root_pred,'.{:s}'.format(self.savefile_type))
         # self.ti_forecast = self.ti_model if ti is None else datetimeify(ti)
         # self.tf_forecast = self.tf_model if tf is None else datetimeify(tf)
         # if self.tf_forecast > self.data.tf:
@@ -1767,10 +1786,10 @@ class ForecastTransLearn(object):
             pred = model.replace(self.modeldir, self.predicdir)
             pred = pred.replace(self.root, self.root_pred)
             # update filetype
-            pred = pred.replace('.pkl','{:s}.{:s}'.format(yr_str, self.savefile_type))                
+            pred = pred.replace('.pkl','.{:s}'.format(self.savefile_type))#('.pkl','{:s}.{:s}'.format(yr_str, self.savefile_type))                
 
             # check if prediction already exists
-            if False:#os.path.isfile(pred):
+            if os.path.isfile(pred):
                 if recalculate:
                     # delete predictions to be recalculated
                     os.remove(pred)
@@ -1792,7 +1811,9 @@ class ForecastTransLearn(object):
         # generate new predictions
         if len(run_predictions)>0:
             # load feature matrix
-            fM,_ = self._load_feat_pred(self.ti_forecast, self.tf_forecast)
+            print('Loading features')
+            fM = self._load_feat_pred(self.ti_forecast, self.tf_forecast) #fM,_
+            print('Done')
             #
             fM = fM.fillna(1.e-8)
             if fM.shape[0] == 0: return pd.DataFrame([],columns=['consensus'])
@@ -1810,7 +1831,7 @@ class ForecastTransLearn(object):
             # predict_models(fM, model_path, run_predictions)
             # not parallelized for now
             ys += predict_models(fM, model_path, run_predictions, yr)
-            _ys.append(_)
+            #_ys.append(_)
             # if False:
             #     for i, y in enumerate(mapper(f, run_predictions)):
             #         cf = (i+1)/len(run_predictions)
@@ -1828,9 +1849,9 @@ class ForecastTransLearn(object):
         
         # condense data frames and write output
         ys = pd.concat(ys, axis=1, sort=False)
-        _ys = pd.concat(_ys, axis=1, sort=False)
+        #_ys = pd.concat(_ys, axis=1, sort=False)
         consensus = np.mean([ys[col].values for col in ys.columns if 'pred' in col], axis=0)
-        forecast = pd.DataFrame(consensus, columns=['consensus'], index=_ys['time'])
+        forecast = pd.DataFrame(consensus, columns=['consensus'], index=fM.index)#index=ys)#_ys['time'])
         #
         #forecast['time']=_ys['time']
         #forecast.rename(columns={'time': 'ref'}, inplace=True)
@@ -1929,7 +1950,7 @@ class ForecastTransLearn(object):
                 
         #         if tii > ti:
         #             axs[-1].fill_between([tii, tii+self.dtf], [0,0], [1,1], color='y', zorder=3)
-                
+     
         for ax in axs:
             ax.fill_between([], [], [], color='y', label='eruption forecast')
         axs[-1].legend()
@@ -2043,10 +2064,10 @@ if __name__ == "__main__":
             save=r'{:s}/forecast.png'.format(fm.plotdir))
         pass
     
-    if True: # ForecastTransLearn class
+    if False: # ForecastTransLearn class
         #
         datastream = ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']#['zsc_rsamF','zsc_mfF','zsc_hfF','zsc_dsarF', 'log_zsc2_rsamF', 'diff_zsc2_rsamF']
-        stations=['WIZ','KRVZ']
+        stations=['WIZ']#,'KRVZ']
         dtb = 60
         dtf = 0
         win=2.
@@ -2062,12 +2083,16 @@ if __name__ == "__main__":
             modeldir=modeldir,featdir=featdir,predicdir=predicdir, plotdir=plotdir, savefile_type='csv') # 
         # run forec
         station_test='FWVZ'
-        ti_forecast='2006-07-01'
-        tf_forecast='2009-12-31'#'2012-12-31'
+        ti_forecast='2007-09-01'
+        tf_forecast='2007-10-01'#'2012-12-31'
+        #
+        station_test='WIZ'
+        ti_forecast='2019-11-01'
+        tf_forecast='2019-12-31'#'2012-12-31'
         if True: # run forecast
             ys = fm0.forecast(station_test=station_test,ti_forecast=ti_forecast, tf_forecast=tf_forecast, 
-                yr=2012, recalculate=False)
-            fm0.plot_forecast(ys, threshold=0.75, xlim = [ti_forecast, tf_forecast])
+                recalculate=True)#, yr=2007)
+            #fm0.plot_forecast(ys, threshold=0.75, xlim = [ti_forecast, tf_forecast])
         if False: # performance
             pass 
 

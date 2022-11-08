@@ -28,8 +28,8 @@ This objects just manipulates feature matrices that already exist.
 
 Todo:
 - method to mark rows with imcomplete data 
-- check sensitivity to random number seed for noise mirror (FeaturesMulti._load_tes)
-- criterias for feature selection
+- check sensitivity to random number seed for noise mirror (FeaturesMulti._load_tes())
+- criterias for feature selection (see FeaturesSta.reduce())
 '''
 
 class FeaturesSta(object):
@@ -81,9 +81,9 @@ class FeaturesSta(object):
         norm
             mean normalization of feature matrix (feature time series)
         reduce
-            reduce number of features by filtering features with 
-            non-relevant variance (after normalization), or by given a
-            list of selected features
+            remove features from fM. Method recibes a list of feature names (str),
+            a direction to a file with names (see method doctstring), or a critiria to 
+            selec feature (str, see method docstring).
     """
     def __init__(self, station='WIZ', window = 2., datastream = 'zsc2_dsarF', feat_dir=None, ti=None, tf=None, 
         	tes_dir=None, dt=None, lab_lb=2.):
@@ -219,11 +219,12 @@ class FeaturesSta(object):
 
             Parameters:
             -----------
-            ft_lt   :   str, list
+            ft_lt   :   str, list, boolean
                 str: file directory containing list feature names (strs)
                     list of feature to keep. File need to be a comma separated text file 
                     where the second column corresponds to the feature name.  
                 list:   list of names (strs) of columns (features) to keep
+                True:   select 100 columns (features) with higher variance
             Returns:
             --------
             Note:
@@ -231,22 +232,29 @@ class FeaturesSta(object):
             Method rewrite self.fM (inplace)
             If list of feature not given, method assumes that matrix have been normalized (self.norm())
         '''
-
         if ft_lt:
             isstr=isinstance(ft_lt, str)
             islst=isinstance(ft_lt, list)
             if isstr:
-                v = self.fM.columns
-                a = self.fM.shape
                 with open(ft_lt,'r') as fp:
                     colm_keep=[ln.rstrip().split(',')[1].rstrip() for ln in fp.readlines() if (self.datastream in ln and 'cwt' not in ln)]
                     self.colm_keep=colm_keep
                     # temporal (to fix): if 'cwt' not in ln (features with 'cwt' contains ',' in their names, so its split in the middle)
                 self.fM = self.fM[self.colm_keep] # not working
-            if islst:
+            elif islst:
                 a=ft_lt[0]
                 self.fM = self.fM[ft_lt] # not working
-        else: 
+            else: 
+                # Filter 100 feature with higher variance
+                _l=[]
+                _fM=self.fM
+                for i in range(100):
+                    _col=_fM.var().idxmax()
+                    _l.append(_col)
+                    _fM = _fM.drop(_col, axis=1)
+                del _fM
+                self.fM=self.fM[_l]
+        else:
             # drop by some statistical criteria to develop
             pass
             #col_drops = []
@@ -304,6 +312,9 @@ class FeaturesMulti(object):
             Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
         feat_dir: str
             Repository location of feature matrices.
+        no_erup : list of two elements
+            Do not load a certain eruption. Need to specified station and number of eruption  
+            (e.g., ['WIZ',4]; eruption number, as 4, start counting from 0)
 
         U   :   numpy matrix
             Unitary matrix 'U' from SVD of fM (shape nxm). Shape is nxn.
@@ -318,6 +329,8 @@ class FeaturesMulti(object):
         _load
             load multiple feature matrices and create one combined matrix. 
             Normalization and feature selection is performed here. 
+        norm
+            mean normalization of feature matrix (feature time series)
         save
             save feature and label matrix
         svd
@@ -333,7 +346,7 @@ class FeaturesMulti(object):
     """
     def __init__(self, stations=None, window = 2., datastream = 'zsc2_dsarF', feat_dir=None, 
         dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, 
-        dt=None, lab_lb=2.,savefile_type='pkl'):
+        dt=None, lab_lb=2.,savefile_type='pkl', no_erup=None):
         self.stations=stations
         if self.stations:
             self.window=window
@@ -357,6 +370,7 @@ class FeaturesMulti(object):
             self.tes_dir=tes_dir
             self.noise_mirror=noise_mirror
             self.savefile_type=savefile_type
+            self.no_erup=no_erup
             self._load_tes(tes_dir) # create self.tes (and self.tes_mirror) 
             self._load() # create dataframe from feature matrices
     def _load_tes(self,tes_dir):
@@ -378,9 +392,9 @@ class FeaturesMulti(object):
         self.tes = {}
         for sta in self.stations:
             # get eruptions
-            fl_nm = os.sep.join([tes_dir,sta+'_eruptive_periods.txt'])
+            fl_nm = os.sep.join([self.tes_dir,sta+'_eruptive_periods.txt'])
             with open(fl_nm,'r') as fp:
-                self.tes[sta] = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
+                self.tes[sta] = [datetimeify(ln.rstrip()) for i,ln in enumerate(fp.readlines()) if (i != self.no_erup[1] and sta is self.no_erup[0])]
         #
         # create noise mirror to fM
         if self.noise_mirror:
@@ -431,24 +445,57 @@ class FeaturesMulti(object):
                 Label vector of multiple stations and eruptions
         """
         #
-        fM = []
+        FM=[]
         ys = []
+        _blk=0
         for sta in self.stations:
-            for te in self.tes[sta]: 
+            fM = []
+            for i, te in enumerate(self.tes[sta]): 
                 # FeatureSta
                 feat_sta = FeaturesSta(station=sta, window=self.window, datastream=self.datastream, feat_dir=self.feat_dir, 
                     ti=te-self.dtb, tf=te+self.dtf, tes_dir = self.tes_dir, dt=self.dt, lab_lb=self.lab_lb)
-                if self.feat_selc:
-                    feat_sta.reduce(ft_lt=self.feat_selc)
-                feat_sta.norm()
+                #if self.feat_selc and (isinstance(self.feat_selc, str) or isinstance(self.feat_selc, list)):
+                #    feat_sta.reduce(ft_lt=self.feat_selc)
+                    #feat_sta.norm()
+                #elif self.feat_selc:
+                    #feat_sta.norm()
+                feat_sta.reduce(ft_lt=self.feat_selc)
                 fM.append(feat_sta.fM)
                 # add column to labels with stations name
                 feat_sta.ys['station']=sta
+                feat_sta.ys['noise_mirror']=False
+                feat_sta.ys['block']=_blk
+                _blk+=1
                 ys.append(feat_sta.ys)
                 #
-                del feat_sta
+                if self.noise_mirror:
+                    te= self.tes_mirror[sta][i]
+                    # FeatureSta
+                    _feat_sta = FeaturesSta(station=sta, window=self.window, datastream=self.datastream, feat_dir=self.feat_dir, 
+                        ti=te-self.dtb, tf=te+self.dtf, tes_dir = self.tes_dir)
+                    #feat_sta.norm()
+                    # filter to features in fM (columns)
+                    _feat_sta.fM=_feat_sta.fM[list(feat_sta.fM.columns)]
+                    #
+                    fM.append(_feat_sta.fM)
+                    # add column to labels with stations name
+                    _feat_sta.ys['station']=sta
+                    _feat_sta.ys['noise_mirror']=True
+                    _feat_sta.ys['block']=_blk
+                    _blk+=1
+                    ys.append(_feat_sta.ys)
+                    #
+                    del _feat_sta  
+                #
+                del feat_sta             
+            #
+            _fM=pd.concat(fM)
+            # norm
+            _fM =(_fM-_fM.mean())/_fM.std() # norm station matrix
+            FM.append(_fM) # add to multi station
+            del _fM
         # concatenate and modifify index to a reference ni
-        self.fM=pd.concat(fM)
+        self.fM=pd.concat(FM)
         # drop columns with NaN
         self.fM=self.fM.drop(columns=self.fM.columns[self.fM.isna().any()].tolist())
         # create index with a reference number and create column 'time' 
@@ -460,36 +507,48 @@ class FeaturesMulti(object):
         # modifiy index 
         del fM, ys
         #
-        if self.noise_mirror:
-            fM = []
-            ys = []
-            for sta in self.stations:
-                for te in self.tes_mirror[sta]: 
-                    # FeatureSta
-                    feat_sta = FeaturesSta(station=sta, window=self.window, datastream=self.datastream, feat_dir=self.feat_dir, 
-                        ti=te-self.dtb, tf=te+self.dtf, tes_dir = self.tes_dir)
-                    feat_sta.norm()
-                    # filter to features in fM (columns)
-                    feat_sta.fM=feat_sta.fM[list(self.fM.columns)]
-                    #
-                    fM.append(feat_sta.fM)
-                    # add column to labels with stations name
-                    feat_sta.ys['station']=sta
-                    ys.append(feat_sta.ys)
-                    #
-                    del feat_sta
-            # concatenate and modifify index to a reference ni
-            self.fM_mirror=pd.concat(fM)
-            # drop columns with NaN
-            #self.fM_mirror=self.fM_mirror.drop(columns=self.fM_mirror.columns[self.fM_mirror.isna().any()].tolist())
-            # create index with a reference number and create column 'time' 
-            #self.fM['time']=self.fM.index # if want to keep time column
-            self.fM_mirror.index=range(self.fM_mirror.shape[0])
-            self.ys_mirror=pd.concat(ys)
-            self.ys_mirror['time']=self.ys_mirror.index
-            self.ys_mirror.index=range(self.ys_mirror.shape[0])
-            # modifiy index 
-            del fM, ys
+        # if self.noise_mirror:
+        #     fM = []
+        #     ys = []
+        #     for sta in self.stations:
+        #         for te in self.tes_mirror[sta]: 
+        #             # FeatureSta
+        #             feat_sta = FeaturesSta(station=sta, window=self.window, datastream=self.datastream, feat_dir=self.feat_dir, 
+        #                 ti=te-self.dtb, tf=te+self.dtf, tes_dir = self.tes_dir)
+        #             feat_sta.norm()
+        #             # filter to features in fM (columns)
+        #             feat_sta.fM=feat_sta.fM[list(self.fM.columns)]
+        #             #
+        #             fM.append(feat_sta.fM)
+        #             # add column to labels with stations name
+        #             feat_sta.ys['station']=sta
+        #             ys.append(feat_sta.ys)
+        #             #
+        #             del feat_sta
+        #     # concatenate and modifify index to a reference ni
+        #     self.fM_mirror=pd.concat(fM)
+        #     # drop columns with NaN
+        #     #self.fM_mirror=self.fM_mirror.drop(columns=self.fM_mirror.columns[self.fM_mirror.isna().any()].tolist())
+        #     # create index with a reference number and create column 'time' 
+        #     #self.fM['time']=self.fM.index # if want to keep time column
+        #     self.fM_mirror.index=range(self.fM_mirror.shape[0])
+        #     self.ys_mirror=pd.concat(ys)
+        #     self.ys_mirror['time']=self.ys_mirror.index
+        #     self.ys_mirror.index=range(self.ys_mirror.shape[0])
+        #     # modifiy index 
+        #     del fM, ys
+    def norm(self):
+        ''' Mean normalization of feature matrix (along columns): substracts mean value, 
+            and then divide by standard deviation. 
+            Parameters:
+            -----------
+            Returns:
+            --------
+            Note:
+            --------
+            Method rewrite self.fM (inplace)
+        '''
+        self.fM =(self.fM-self.fM.mean())/self.fM.std()
     def save(self,fl_nm=None):
         ''' Save feature matrix and label matrix
             Parameters:
@@ -512,12 +571,12 @@ class FeaturesMulti(object):
         _=fl_nm.find('.')
         _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
         save_dataframe(self.ys, os.sep.join([self.feat_dir,_fl_nm]), index=True)
-        if self.noise_mirror:
-            fl_nm=fl_nm[:_]+'_nmirror'+fl_nm[_:]
-            save_dataframe(self.fM_mirror, os.sep.join([self.feat_dir,fl_nm]), index=True)
-            _=fl_nm.find('.')
-            _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
-            save_dataframe(self.ys_mirror, os.sep.join([self.feat_dir,_fl_nm]), index=True)
+        # if self.noise_mirror:
+        #     fl_nm=fl_nm[:_]+'_nmirror'+fl_nm[_:]
+        #     save_dataframe(self.fM_mirror, os.sep.join([self.feat_dir,fl_nm]), index=True)
+        #     _=fl_nm.find('.')
+        #     _fl_nm=fl_nm[:_]+'_labels'+fl_nm[_:]
+        #     save_dataframe(self.ys_mirror, os.sep.join([self.feat_dir,_fl_nm]), index=True)
     def load_fM(self, feat_dir,fl_nm,noise_mirror=None):
         ''' Load feature matrix and lables from file (fl_nm)
             Parameters:
@@ -534,10 +593,10 @@ class FeaturesMulti(object):
                 'FM_'+window+'w_'+datastream+'_'+stations(-)+'_'+dtb+'_'+dtf+'dtf'+'.'+file_type
                 e.g., FM_2w_zsc2_hfF_WIZ-KRVZ_60dtb_0dtf.csv
         '''
-        if noise_mirror:
-            self.noise_mirror=True
-        else:
-            self.noise_mirror=False
+        # if noise_mirror:
+        #     self.noise_mirror=True
+        # else:
+        #     self.noise_mirror=False
         # assing attributes from file name
         def _load_atrib_from_file(fl_nm): 
             _ = fl_nm.split('.')[0]
@@ -558,20 +617,19 @@ class FeaturesMulti(object):
         self.ys = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, infer_datetime_format=False, header=0, skiprows=None, nrows=None)
         self.ys['time'] = pd.to_datetime(self.ys['time'])
         #
-        if self.noise_mirror:
-            fl_nm=fl_nm[:_]+'_nmirror'+fl_nm[_:]
-            # load feature matrix
-            self.fM_mirror = load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, 
-                infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-            # load labels 
-            _=fl_nm.find('.')
-            _fl_nm=fl_nm[:_]+'_labels'+_fl_nm[_-1:]
-            self.ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, 
-                infer_datetime_format=False, header=0, skiprows=None, nrows=None)
-            self.ys_mirror['time'] = pd.to_datetime(self.ys['time'])
+        # if self.noise_mirror:
+        #     fl_nm=fl_nm[:_]+'_nmirror'+fl_nm[_:]
+        #     # load feature matrix
+        #     self.fM_mirror = load_dataframe(os.sep.join([self.feat_dir,fl_nm]), index_col=0, parse_dates=False, 
+        #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #     load labels 
+        #     _=fl_nm.find('.')
+        #     _fl_nm=fl_nm[:_]+'_labels'+_fl_nm[_-1:]
+        #     self.ys_mirror = load_dataframe(os.sep.join([self.feat_dir,_fl_nm]), index_col=0, parse_dates=False, 
+        #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
+        #     self.ys_mirror['time'] = pd.to_datetime(self.ys['time'])
         #
-
-    def svd(self):
+    def svd(self, norm=None, noise_mirror=False):
         ''' Compute SVD (singular value decomposition) on feature matrix. 
             Parameters:
             -----------
@@ -587,8 +645,16 @@ class FeaturesMulti(object):
             VT  :   numpy matrix
                 Transponse of unitary matrix 'V' from SVD of fM (shape mxm). Shape is mxm.
         '''
+        if norm:
+            self.norm()
         #_fM = self.fM.drop('time',axis=1)
-        self.U,self.S,self.VT=np.linalg.svd(self.fM,full_matrices=True)
+        if noise_mirror:
+            self.U,self.S,self.VT=np.linalg.svd(self.fM,full_matrices=True)
+        else:
+            # filter noise rows from fM
+            _fM=self.fM[self.ys["noise_mirror"] == False] 
+            self.U,self.S,self.VT=np.linalg.svd(_fM,full_matrices=True)
+        del _fM
     def plot_svd_evals(self):
         ''' Plot eigen values from svd
             Parameters:
@@ -620,7 +686,7 @@ class FeaturesMulti(object):
         [ax.set_xlabel('# eigen value') for ax in [ax1,ax2,ax3,ax4]]
         plt.tight_layout()
         plt.show() 
-    def plot_svd_pcomps(self,labels=None):
+    def plot_svd_pcomps(self,labels=None,quick=None):
         ''' Plot fM (feature matrix) into principal component (first nine).
             Rows of fM are projected into rows of VT.  
             Parameters:
@@ -631,8 +697,9 @@ class FeaturesMulti(object):
             --------
         '''
         #
-        plt.rcParams['figure.figsize'] = [8, 8]
-        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6), (ax7, ax8, ax9)) = plt.subplots(3, 3)
+        plt.rcParams['figure.figsize'] = [10, 3.3]
+        #fig, ((ax1, ax2, ax3), (ax4, ax5, ax6), (ax7, ax8, ax9)) = plt.subplots(3, 3)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
         fig.suptitle('fM projected in VT')
         #
         if labels:
@@ -643,13 +710,24 @@ class FeaturesMulti(object):
             for i,sta in enumerate(self.stations):
                 colors[sta]='#%06X' % random.randint(0, 0xFFFFFF)
         #
+        #quick=True
+        _N=self.fM.shape[0]
+        N=range(_N)
+        if quick:
+            N=N[N[0]:N[-1]:2]#int(len(N)/1000)]
+        #
         for i, ax in enumerate(fig.get_axes()): #[ax1,ax2,ax3])
-            for j in range(self.fM.shape[0]):
-                #x = VT[3,:] @ covariance_matrix[j,:].T
+            for j in N:
+                #x = VT[3,:] @ covariance_matrix[j,:].T 
                 y = self.VT[i,:] @ self.fM.values[j,:].T
                 z = self.VT[i+1,:] @ self.fM.values[j,:].T
+                # check if point is background
+                _nm=self.ys["noise_mirror"][j]
                 if labels:
-                    ax.plot(y,z, marker='.',color=colors[self.ys['station'][j]])                
+                    if _nm:
+                        ax.plot(y,z, marker='.',color='k') 
+                    else:
+                        ax.plot(y,z, marker='.',color=colors[self.ys['station'][j]])                
                 else:
                     ax.plot(y,z,'b.')
             #ax1.set_xlabel('pc3')
@@ -658,9 +736,16 @@ class FeaturesMulti(object):
             #ax1.view_init(0,0)
             if i==0:
                 for sta in self.stations:
-                    ax.plot([],[], marker='.',color=colors[sta], label = sta)
+                    try:
+                        ax.plot([],[], marker='.',color=colors[sta], label = sta_code[sta])
+                    except:
+                        ax.plot([],[], marker='.',color=colors[sta], label = sta)
+        if labels:
+            ax.plot([],[], marker='.',color='k', label = 'noise')
         fig.legend()   
-        plt.tight_layout()     
+        plt.tight_layout()
+        plt.savefig('foo.png')
+        asdf
         plt.show()
     def plot_svd_pcomps_noise_mirror(self):
         ''' Plot fM (feature matrix) into principal component (first nine).
@@ -709,6 +794,64 @@ class FeaturesMulti(object):
 
 # testing
 if __name__ == "__main__":
+    # station code dic
+    sta_code = {'WIZ': 'Whakaari',
+                'FWVZ': 'Ruapehu',
+                'KRVZ': 'Tongariro',
+                'BELO': 'Bezymiany',
+                'PVV': 'Pavlof',
+                'VNSS': 'Veniaminof',
+                'IVGP': 'Vulcano',
+                'AUS': 'Agustine',
+                'TBTN': 'Telica',
+                'OGDI': 'Reunion',
+                'TBTN': 'Telica',
+                'MEA01': 'Merapi',
+                'GOD' : 'Eyjafjallajökull',
+                'ONTA' : 'Ontake',
+                'REF' : 'Redoubt',
+                'POS' : 'Kawa Ijen',
+                'DAM' : 'Kawa Ijen',
+                'VONK' : 'Holuhraun',
+                'BOR' : 'Piton de la Fournaise',
+                'VRLE' : 'Rincon de la Vega',
+                'T01' : 'Tungurahua',
+                'COP' : 'Copahue'
+                }
+    # dictionary of eruption names 
+    erup_dict = {'WIZ_1': 'Whakaari 2012',
+                'WIZ_2': 'Whakaari 2013a',
+                'WIZ_3': 'Whakaari 2013b',
+                'WIZ_4': 'Whakaari 2016',
+                'WIZ_5': 'Whakaari 2019',
+                'FWVZ_1': 'Ruapehu 2006',
+                'FWVZ_2': 'Ruapehu 2007',
+                'FWVZ_3': 'Ruapehu 2009',
+                'KRVZ_1': 'Tongariro 2012a',
+                'KRVZ_2': 'Tongariro 2012b',
+                'BELO_1': 'Bezymianny 2007a',
+                'BELO_2': 'Bezymianny 2007b',
+                'BELO_3': 'Bezymianny 2007c',
+                'PVV_1': 'Pavlof 2014a',
+                'PVV_2': 'Pavlof 2014b',
+                'PVV_3': 'Pavlof 2016',
+                'VNSS_1': 'Veniaminof 2013',
+                'VNSS_2': 'Veniaminof 2018',
+                'TBTN_1': 'Telica 2011',
+                'TBTN_2': 'Telica 2013',
+                'MEA01_1': 'Merapi 2014a',
+                'MEA01_2': 'Merapi 2014b',
+                'MEA01_3': 'Merapi 2014c',
+                'MEA01_4': 'Merapi 2018a',
+                'MEA01_5': 'Merapi 2018b',
+                'MEA01_6': 'Merapi 2018c',
+                'MEA01_7': 'Merapi 2018d',
+                'MEA01_8': 'Merapi 2019a',
+                'GOD_1' : 'Eyjafjallajökull 2010a',
+                'GOD_2' : 'Eyjafjallajökull 2010b',
+                'VONK_1' : 'Holuhraun 2014a'
+                }
+
     if False: # FeatureSta class
         # FeatureSta
         feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
@@ -720,37 +863,42 @@ if __name__ == "__main__":
         feat_sta.reduce(ft_lt=fl_lt)
     if True: # FeatureMulti class
         # 
-        feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
-        #feat_dir=r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\features'
-
-        tes_dir=r'U:\Research\EruptionForecasting\eruptions\data' 
+        if False: # load from server
+            feat_dir=r'U:\Research\EruptionForecasting\eruptions\features'
+            datadir=r'U:\Research\EruptionForecasting\eruptions\data'
+        if False: # load from local PC
+            feat_dir=r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\features'
+            datadir=r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\data'
+        if True: # load from high speed ext hd
+            feat_dir=r'E:\EruptionForecasting\features'
+            datadir=r'E:\EruptionForecasting\data'
+        # feature selection
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
+        #
         if True: # create combined feature matrix
             stations=['WIZ','FWVZ']#,'KRVZ']#,'VNSS','BELO','GOD','TBTN','MEA01']
             win = 2.
-            dtb = 15 
+            dtb = 15
             dtf = 0
             datastream = 'zsc2_dsarF'
+            #ft = ['zsc2_dsarF__median']
             feat_stas = FeaturesMulti(stations=stations, window = win, datastream = datastream, feat_dir=feat_dir, 
-                dtb=dtb, dtf=dtf, lab_lb=7,tes_dir=tes_dir, feat_selc=fl_lt, noise_mirror=True, data_dir=tes_dir, 
-                dt=10,savefile_type='csv')
+                dtb=dtb, dtf=dtf, lab_lb=7,tes_dir=datadir, noise_mirror=True, data_dir=datadir, 
+                    dt=10,savefile_type='csv',feat_selc=fl_lt)#fl_lt
             #fl_nm = 'FM_'+str(int(win))+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
+            #feat_stas.norm()
             feat_stas.save()#fl_nm=fl_nm)
             #
-        if False: # load existing combined feature matrix 
+        if True: # load existing combined feature matrix 
             feat_stas = FeaturesMulti()
             #fl_nm = 'FM_'+str(win)+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
-            fl_nm = 'FM_2w_zsc2_rsamF_WIZ-FWVZ_30dtb_0dtf.csv'
+            fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ_15dtb_0dtf.csv'
             #fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ-KRVZ-PVV-VNSS-BELO-GOD-TBTN-MEA01_5dtb_2dtf.csv'
-            feat_stas.load_fM(feat_dir=feat_dir,fl_nm=fl_nm,noise_mirror=True)
+            feat_stas.load_fM(feat_dir=feat_dir,fl_nm=fl_nm)#,noise_mirror=True)
             #
             feat_stas.svd()
             #feat_stas.plot_svd_evals()
-            #feat_stas.plot_svd_pcomps(labels=True)
-            feat_stas.plot_svd_pcomps_noise_mirror()
+            feat_stas.plot_svd_pcomps(labels=True,quick=True)
+            #feat_stas.plot_svd_pcomps_noise_mirror()
             #
-
-
-
-
 
