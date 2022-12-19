@@ -312,6 +312,9 @@ class FeaturesMulti(object):
             Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
         feat_dir: str
             Repository location of feature matrices.
+        no_erup : list of two elements
+            Do not load a certain eruption. Need to specified station and number of eruption  
+            (e.g., ['WIZ',4]; eruption number, as 4, start counting from 0)
 
         U   :   numpy matrix
             Unitary matrix 'U' from SVD of fM (shape nxm). Shape is nxn.
@@ -343,7 +346,7 @@ class FeaturesMulti(object):
     """
     def __init__(self, stations=None, window = 2., datastream = 'zsc2_dsarF', feat_dir=None, 
         dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, 
-        dt=None, lab_lb=2.,savefile_type='pkl'):
+        dt=None, lab_lb=2.,savefile_type='pkl', no_erup=None):
         self.stations=stations
         if self.stations:
             self.window=window
@@ -367,6 +370,7 @@ class FeaturesMulti(object):
             self.tes_dir=tes_dir
             self.noise_mirror=noise_mirror
             self.savefile_type=savefile_type
+            self.no_erup=no_erup
             self._load_tes(tes_dir) # create self.tes (and self.tes_mirror) 
             self._load() # create dataframe from feature matrices
     def _load_tes(self,tes_dir):
@@ -390,8 +394,10 @@ class FeaturesMulti(object):
             # get eruptions
             fl_nm = os.sep.join([self.tes_dir,sta+'_eruptive_periods.txt'])
             with open(fl_nm,'r') as fp:
-                self.tes[sta] = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
-        #
+                if self.no_erup:
+                    self.tes[sta] = [datetimeify(ln.rstrip()) for i,ln in enumerate(fp.readlines()) if (i != self.no_erup[1] and sta is self.no_erup[0])]
+                else:
+                    self.tes[sta] = [datetimeify(ln.rstrip()) for i,ln in enumerate(fp.readlines())]
         # create noise mirror to fM
         if self.noise_mirror:
             self.tes_mirror = {}
@@ -625,7 +631,7 @@ class FeaturesMulti(object):
         #         infer_datetime_format=False, header=0, skiprows=None, nrows=None)
         #     self.ys_mirror['time'] = pd.to_datetime(self.ys['time'])
         #
-    def svd(self, noise_mirror=False):
+    def svd(self, norm=None, noise_mirror=False):
         ''' Compute SVD (singular value decomposition) on feature matrix. 
             Parameters:
             -----------
@@ -641,6 +647,8 @@ class FeaturesMulti(object):
             VT  :   numpy matrix
                 Transponse of unitary matrix 'V' from SVD of fM (shape mxm). Shape is mxm.
         '''
+        if norm:
+            self.norm()
         #_fM = self.fM.drop('time',axis=1)
         if noise_mirror:
             self.U,self.S,self.VT=np.linalg.svd(self.fM,full_matrices=True)
@@ -680,7 +688,7 @@ class FeaturesMulti(object):
         [ax.set_xlabel('# eigen value') for ax in [ax1,ax2,ax3,ax4]]
         plt.tight_layout()
         plt.show() 
-    def plot_svd_pcomps(self,labels=None):
+    def plot_svd_pcomps(self,labels=None,quick=None):
         ''' Plot fM (feature matrix) into principal component (first nine).
             Rows of fM are projected into rows of VT.  
             Parameters:
@@ -704,8 +712,14 @@ class FeaturesMulti(object):
             for i,sta in enumerate(self.stations):
                 colors[sta]='#%06X' % random.randint(0, 0xFFFFFF)
         #
+        #quick=True
+        _N=self.fM.shape[0]
+        N=range(_N)
+        if quick:
+            N=N[N[0]:N[-1]:2]#int(len(N)/1000)]
+        #
         for i, ax in enumerate(fig.get_axes()): #[ax1,ax2,ax3])
-            for j in range(self.fM.shape[0]):
+            for j in N:
                 #x = VT[3,:] @ covariance_matrix[j,:].T 
                 y = self.VT[i,:] @ self.fM.values[j,:].T
                 z = self.VT[i+1,:] @ self.fM.values[j,:].T
@@ -731,7 +745,9 @@ class FeaturesMulti(object):
         if labels:
             ax.plot([],[], marker='.',color='k', label = 'noise')
         fig.legend()   
-        plt.tight_layout()     
+        plt.tight_layout()
+        plt.savefig('foo.png')
+        asdf
         plt.show()
     def plot_svd_pcomps_noise_mirror(self):
         ''' Plot fM (feature matrix) into principal component (first nine).
@@ -861,29 +877,30 @@ if __name__ == "__main__":
         # feature selection
         fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
         #
-        if False: # create combined feature matrix
+        if True: # create combined feature matrix
             stations=['WIZ','FWVZ']#,'KRVZ']#,'VNSS','BELO','GOD','TBTN','MEA01']
             win = 2.
-            dtb = 10
+            dtb = 15
             dtf = 0
             datastream = 'zsc2_dsarF'
-            ft = ['zsc2_dsarF__median']
+            #ft = ['zsc2_dsarF__median']
             feat_stas = FeaturesMulti(stations=stations, window = win, datastream = datastream, feat_dir=feat_dir, 
-                dtb=dtb, dtf=dtf, lab_lb=5,tes_dir=datadir, noise_mirror=True, data_dir=datadir, 
-                    dt=10,savefile_type='csv',feat_selc=None)#fl_lt
+                dtb=dtb, dtf=dtf, lab_lb=7,tes_dir=datadir, noise_mirror=True, data_dir=datadir, 
+                    dt=10,savefile_type='csv',feat_selc=fl_lt)#fl_lt
             #fl_nm = 'FM_'+str(int(win))+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
+            #feat_stas.norm()
             feat_stas.save()#fl_nm=fl_nm)
             #
         if True: # load existing combined feature matrix 
             feat_stas = FeaturesMulti()
             #fl_nm = 'FM_'+str(win)+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
-            fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ_10dtb_0dtf.csv'
+            fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ_15dtb_0dtf.csv'
             #fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ-KRVZ-PVV-VNSS-BELO-GOD-TBTN-MEA01_5dtb_2dtf.csv'
             feat_stas.load_fM(feat_dir=feat_dir,fl_nm=fl_nm)#,noise_mirror=True)
             #
             feat_stas.svd()
             #feat_stas.plot_svd_evals()
-            feat_stas.plot_svd_pcomps(labels=True)
+            feat_stas.plot_svd_pcomps(labels=True,quick=True)
             #feat_stas.plot_svd_pcomps_noise_mirror()
             #
 
