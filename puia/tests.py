@@ -5,7 +5,7 @@ from inspect import getfile, currentframe
 from .utilities import DummyClass
 
 def test_data():
-    from data import TremorData
+    from .data import TremorData
     wd=os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data'])
     td=TremorData(station='TEST', data_dir=wd)
     rs=td.df['rsam']
@@ -31,4 +31,3 @@ def run_tests(testname='all'):
         raise ValueError('test function \'{:s}\' not found'.format(testname))
 
     eval('{:s}()'.format(testname))
-

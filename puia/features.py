@@ -14,8 +14,8 @@ import pandas as pd
 from multiprocessing import Pool
 #from __init__ import ForecastModel
 
-from data import TremorData
-from utilities import datetimeify, load_dataframe, save_dataframe, _is_eruption_in, random_date
+from .data import TremorData
+from .utilities import datetimeify, load_dataframe, save_dataframe, _is_eruption_in#, random_date
 
 # constants
 month = timedelta(days=365.25/12)

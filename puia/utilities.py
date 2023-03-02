@@ -60,7 +60,7 @@ def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_da
     '''
     if fl.endswith('.csv'):
         df = pd.read_csv(fl, index_col=index_col, parse_dates=parse_dates, usecols=usecols, infer_datetime_format=infer_datetime_format,
-            nrows=nrows, header=header, skiprows=skiprows)
+            nrows=nrows, header=header, skiprows=skiprows, dayfirst=True)
     elif fl.endswith('.pkl'):
         fp = open(fl, 'rb')
         df = pickle.load(fp)
@@ -84,3 +84,21 @@ def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_da
             df = df.iloc[skiprows:]
     return df
 
+def _is_eruption_in(days, from_time, tes):
+        """ Binary classification of eruption imminence.
+            Parameters:
+            -----------
+            days : float
+                Length of look-forward.
+            from_time : datetime.datetime
+                Beginning of look-forward period.
+            Returns:
+            --------
+            label : int
+                1 if eruption occurs in look-forward, 0 otherwise
+            
+        """
+        for te in tes:
+            if 0 < (te-from_time).total_seconds()/(3600*24) < days:
+                return 1.
+        return 0.
