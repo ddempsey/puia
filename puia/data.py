@@ -119,6 +119,13 @@ STATIONS={
             'channel':'EHZ',
             'network':'AV',
             'location':'*',
+            },
+    'GSTD':{
+            'client_name':'IRIS',
+            'nrt_name':'https://service.iris.edu',
+            'channel':'EHZ',
+            'network':'AV',
+            'location':'*',
             }
     }
 

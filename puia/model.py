@@ -132,14 +132,16 @@ def get_classifier(classifier):
         raise ValueError("classifier '{:s}' not recognised".format(classifier))
     
     return model, grid
-def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, method, random_state):
+def train_one_model(fM, yss, Nfts, modeldir, classifier, retrain, random_seed, method, random_state):
     ''' helper function for parallelising model training
     '''
     # undersample data
+    ys=yss['label']
     rus = RandomUnderSampler(method, random_state=random_state+random_seed)
-    a=fM.shape
-    b=ys.shape
-    fMt,yst = rus.fit_resample(fM,ys)
+    fMyss=pd.concat([fM,yss],axis=1)    # DED temporary concat for co-sampling
+    fMt,yst = rus.fit_resample(fMyss,ys)
+    ysst=fMt[yss.columns]               # DED split off label DF post sampling (for inspection)
+    fMt=fMt.drop(columns=yss.columns)   # DED split off feature matrix
     yst = pd.Series(yst>0, index=range(len(yst)))
     fMt.index = yst.index
 
@@ -465,6 +467,9 @@ class TrainModelCombined(object):
                 List of time windows to exclude during training. Facilitates dropping of eruption 
                 windows within analysis period. E.g., exclude_dates = [['2012-06-01','2012-08-01'],
                 ['2015-01-01','2016-01-01']] will drop Jun-Aug 2012 and 2015-2016 from analysis.
+            method : float, str
+                Passed to RandomUndersampler. If float, proportion of minor class in final sampling (two label).
+                If str, method used for multi-label undersampling.
 
             Classifier options:
             -------------------
@@ -497,8 +502,12 @@ class TrainModelCombined(object):
             # delete old model files
             _ = [os.remove(fl) for fl in  glob('{:s}/*'.format(self.modeldir))]
 
-        # get feature matrix and label vector
+        # get feature matrix and label vector at full resolution
         fM, yss = self._load_feat()
+        
+        # DED resample to specified overlap resolution
+        fM = fM.iloc[::int(self.dto.seconds/600),:]
+        yss = yss.iloc[::int(self.dto.seconds/600),:]
         ys = yss['label']
 
         # save meta info file 
@@ -546,9 +555,10 @@ class TrainModelCombined(object):
             mapper = p.imap
         else:
             mapper = map
-        f = partial(train_one_model, fM, ys, Nfts, self.modeldir, self.classifier, retrain, random_seed, method)
+        f = partial(train_one_model, fM, yss, Nfts, self.modeldir, self.classifier, retrain, random_seed, method)
 
         # train models with glorious progress bar
+        # f(0)
         for i, _ in enumerate(mapper(f, range(Ncl))):
             cf = (i+1)/Ncl
             print(f'building models: [{"#"*round(50*cf)+"-"*round(50*(1-cf))}] {100.*cf:.2f}%\r', end='') 

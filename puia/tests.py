@@ -5,8 +5,10 @@ from utilities import DummyClass
 from model import TrainModelCombined
 from forecast import ForecastTransLearn
 from datetime import datetime, timedelta
-from utilities import datetimeify
+from utilities import datetimeify, load_dataframe, save_dataframe
+from data import TremorData
 import matplotlib.pyplot as plt
+import numpy as np
 
 
 # constants
@@ -47,6 +49,46 @@ def run_tests(testname='all'):
 if __name__ == "__main__":
     if False:
         test_data()
+    if False: # test download data
+        from obspy import UTCDateTime 
+        from datetime import timedelta
+        #    stations = ['FWVZ','BELO','REF','SSLW','VNSS','OKWR']
+        stations=['GSTD']
+        dt = timedelta(days=20)
+        for station in stations:
+            try:
+                td = TremorData(station=station)
+                ti = td._probe_start()
+                if station == 'WIZ': ti = UTCDateTime(datetimeify('2008-01-01'))
+                if station == 'OKWR': ti = UTCDateTime(datetimeify('2008-01-01'))
+                if station == 'VNSS': ti = UTCDateTime(datetimeify('2013-01-01'))
+                if station == 'AUS': ti = UTCDateTime(datetimeify('2005-11-01'))
+                if station == 'IVGP': ti = UTCDateTime(datetimeify('2019-08-10'))
+                if station == 'IVUG': ti = UTCDateTime(datetimeify('2020-08-10'))
+                if station == 'ISTR': ti = UTCDateTime(datetimeify('2021-08-10'))
+                if station == 'FWVZ': ti = UTCDateTime(datetimeify('2005-06-01'))
+                if station == 'PVV': ti = UTCDateTime(datetimeify('2014-01-01'))
+                if station == 'GSTD': ti = UTCDateTime(datetimeify('2021-05-10'))
+                if td.tf is not None:
+                    from copy import deepcopy
+                    ti = UTCDateTime(deepcopy(td.tf))
+                N = int(np.ceil((datetime.today()-ti._get_datetime())/dt))
+                for i in range(N):
+                    t0=ti+i*dt
+                    t1=ti+(i+1)*dt
+                    if t1>datetime.today():
+                        t1 = datetime.today()
+                    td.update(t0, t1, n_jobs=4)
+            except:
+                with open('{:s}_download.err'.format(station),'w') as fp:
+                    fp.write(str(traceback.format_exc())+'\n')
+                    fp.write(str(sys.exc_info()[0]))
+                try:
+                    shutil.rmtree('_tmp')
+                except:
+                    pass
+                pass
+        asdf
     if False: # testing TL forecasting 
         if False:
             rootdir=r'U:\Research\EruptionForecasting\eruptions'
@@ -127,16 +169,23 @@ if __name__ == "__main__":
             modeldir=r'E:\EruptionForecasting\models'
             predicdir=r'E:\EruptionForecasting\predictions'
             plotdir=r'E:\EruptionForecasting\plots'
+            #rootdir='../../EruptionForecasting'
+            #datadir='../../EruptionForecasting/data' 
+            #featdir='../../EruptionForecasting/features'
+            #modeldir='../../EruptionForecasting/models'
+            #predicdir='../../EruptionForecasting/predictions'
+            #plotdir='../../EruptionForecasting/plots'
         # feat selection
-        fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\test_codes\pca\feature_selection\whakaari\models\test\all.fts'#'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts' 
+        # fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\test_codes\pca\feature_selection\whakaari\models\test\all.fts'#'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts' 
+        # fl_lt = featdir+r'\all.fts'
         fl_lt = None
         # 
         ## cross-validation 
         stations=['WIZ','WIZ']#,'KRVZ'] # this could contain multiple stations. If want to forecast in the same stations, repeat staion
         no_erup = None#['WIZ',4] # remove eruption from training (e.g., ['WIZ',4]; eruption number, as 4, start counting from 0)
         datastream =  ['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF']
-        dtb = 60 # looking back from eruption times
-        dtf = 10  # looking forward from eruption times
+        dtb = 180 # looking back from eruption times
+        dtf = 30  # looking forward from eruption times
         win=2.   # window length
         lab_lb=2.# days to label as eruptive before the eruption times 
         noise_mirror=True
@@ -160,12 +209,13 @@ if __name__ == "__main__":
                 root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(sta_train)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'
                 #
                 ## (1) training models with 'stations'
-                # combined features matrices are save in featdir in a folder named by the attributes 
-                fm0 = TrainModelCombined(stations=sta_train,window=win, overlap=1., dtb=dtb, dtf=dtf, datastream=datastream,
+                # combined features matrices are saved in featdir in a folder named by the attributes 
+                # DED changed overlap from 1. to 0.75
+                fm0 = TrainModelCombined(stations=sta_train,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
                     rootdir=rootdir,root=root,feat_dir=featdir, data_dir=datadir, tes_dir=datadir,feat_selc=fl_lt, model_dir=modeldir,
                         lab_lb=lab_lb,noise_mirror=noise_mirror, savefile_type='csv', no_erup = no_erup) # 
-                #
-                fm0.train(Nfts=20, Ncl=500, retrain=True, classifier="RF", random_seed=0, method=0.75, n_jobs=4) #20,500
+                # DED change to 50 classifiers and Decision Trees
+                fm0.train(Nfts=20, Ncl=50, retrain=False, classifier="DT", random_seed=0, method=0.75, n_jobs=6) #20,500
                 ## (2) Forecasting on test station 
                 # usgin model created from 'stations' to predict on a diferent station called 'station_test'
                 model_name=root # model to be use
@@ -176,8 +226,8 @@ if __name__ == "__main__":
                 fl_nm = os.sep.join([datadir,sta_test+'_eruptive_periods.txt'])
                 with open(fl_nm,'r') as fp:
                     tes = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
-                ti_forecast=tes[-1]-2*month  #'2007-09-01'   
-                tf_forecast=tes[-1]+.5*month #'2007-09-01' 
+                ti_forecast=tes[-2]-12*month  #'2007-09-01'   
+                tf_forecast=tes[-2]+.5*month #'2007-09-01' 
                 #
                 ys = fm0.forecast(station_test=sta_test,ti_forecast=ti_forecast, tf_forecast=tf_forecast, 
                     recalculate=True) # generate a consensus file in predicdir folder
@@ -186,7 +236,7 @@ if __name__ == "__main__":
                     break    # break here
                 # Need to check that the model.predict in line 153 in predict_models function (forecast.py) is working fine. 
 
-        if False: # plot results 
+        if True: # plot results 
             pass
             import pandas as pd 
             #
@@ -197,6 +247,7 @@ if __name__ == "__main__":
                 root='FM_'+str(int(win))+'w_'+'-'.join(datastream)+'_'+'-'.join(sta_train)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf_'+sta_test
                 # read concensus 
                 _con = pd.read_csv(predicdir+os.sep+root+os.sep+'consensus.csv', index_col=0, parse_dates=['time'], infer_datetime_format=True, header=0)
+                _con['consensus']=_con['consensus'].rolling(6*24*2).median()
                 _con.plot()  
                 #
                 fl_nm = os.sep.join([datadir,sta_test+'_eruptive_periods.txt'])
@@ -207,7 +258,7 @@ if __name__ == "__main__":
                 plt.axvline(x = _tes, color = 'k', label = 'eruption')#
                 plt.title(sta_test)
                 plt.show()    
-                asdf          
+      
                 
 
             

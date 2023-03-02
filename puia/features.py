@@ -173,7 +173,9 @@ class FeaturesSta(object):
             # filter between t0 and t1
             fMi=fMi.loc[t0:t1-self.dt] #_dt=10*minute
             # resample at a constant rate (def self.dt)
-            fMi=fMi.resample(str(int(self.dt.seconds/60))+'min').sum()
+            # fMi=fMi.resample(str(int(self.dt.seconds/60))+'min').sum()
+            # DED replace sum with median
+            fMi=fMi.resample(str(int(self.dt.seconds/60))+'min').median()
             # append to fMi
             fM.append(fMi)
         # vertical concat on time
@@ -237,6 +239,7 @@ class FeaturesSta(object):
             islst=isinstance(ft_lt, list)
             if isstr:
                 with open(ft_lt,'r') as fp:
+                    #fp.readlines()
                     colm_keep=[ln.rstrip().split(',')[1].rstrip() for ln in fp.readlines() if (self.datastream in ln and 'cwt' not in ln)]
                     self.colm_keep=colm_keep
                     # temporal (to fix): if 'cwt' not in ln (features with 'cwt' contains ',' in their names, so its split in the middle)
@@ -746,8 +749,7 @@ class FeaturesMulti(object):
             ax.plot([],[], marker='.',color='k', label = 'noise')
         fig.legend()   
         plt.tight_layout()
-        plt.savefig('foo.png')
-        asdf
+        #plt.savefig('foo.png')
         plt.show()
     def plot_svd_pcomps_noise_mirror(self):
         ''' Plot fM (feature matrix) into principal component (first nine).
@@ -875,14 +877,14 @@ if __name__ == "__main__":
             feat_dir=r'E:\EruptionForecasting\features'
             datadir=r'E:\EruptionForecasting\data'
         # feature selection
-        fl_lt = r'C:\Users\aar135\codes_local_disk\volc_forecast_tl\volc_forecast_tl\models\test\all.fts'
+        fl_lt = feat_dir+r'\all.fts'
         #
-        if True: # create combined feature matrix
+        if False: # create combined feature matrix
             stations=['WIZ','FWVZ']#,'KRVZ']#,'VNSS','BELO','GOD','TBTN','MEA01']
             win = 2.
             dtb = 15
             dtf = 0
-            datastream = 'zsc2_dsarF'
+            datastream = 'zsc2_rsamF'
             #ft = ['zsc2_dsarF__median']
             feat_stas = FeaturesMulti(stations=stations, window = win, datastream = datastream, feat_dir=feat_dir, 
                 dtb=dtb, dtf=dtf, lab_lb=7,tes_dir=datadir, noise_mirror=True, data_dir=datadir, 
@@ -894,7 +896,7 @@ if __name__ == "__main__":
         if True: # load existing combined feature matrix 
             feat_stas = FeaturesMulti()
             #fl_nm = 'FM_'+str(win)+'w_'+datastream+'_'+'-'.join(stations)+'_'+str(dtb)+'dtb_'+str(dtf)+'dtf'+'.csv'
-            fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ_15dtb_0dtf.csv'
+            fl_nm = 'FM_2w_zsc2_rsamF_WIZ-FWVZ_15dtb_0dtf.csv'
             #fl_nm = 'FM_2w_zsc2_dsarF_WIZ-FWVZ-KRVZ-PVV-VNSS-BELO-GOD-TBTN-MEA01_5dtb_2dtf.csv'
             feat_stas.load_fM(feat_dir=feat_dir,fl_nm=fl_nm)#,noise_mirror=True)
             #
