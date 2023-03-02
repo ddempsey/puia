@@ -1,3 +1,8 @@
+"""Utilities package for puia."""
+
+__author__ = """"""
+__email__ = ''
+__version__ = '0.1.0'
 
 import pickle
 import pandas as pd
@@ -85,20 +90,47 @@ def load_dataframe(fl, index_col=None, parse_dates=False, usecols=None, infer_da
     return df
 
 def _is_eruption_in(days, from_time, tes):
-        """ Binary classification of eruption imminence.
-            Parameters:
-            -----------
-            days : float
-                Length of look-forward.
-            from_time : datetime.datetime
-                Beginning of look-forward period.
-            Returns:
-            --------
-            label : int
-                1 if eruption occurs in look-forward, 0 otherwise
+    """ Binary classification of eruption imminence.
+        Parameters:
+        -----------
+        days : float
+            Length of look-forward.
+        from_time : datetime.datetime
+            Beginning of look-forward period.
+        tes: list of datetimes
+            Eruptive times
+        Returns:
+        --------
+        label : int
+            1 if eruption occurs in look-forward, 0 otherwise
+    """
+    for te in tes:
+        if 0 < (te-from_time).total_seconds()/(3600*24) < days:
+            return 1.
+    return 0.
+
+    from random import randrange
+from datetime import timedelta
+
+def random_date(start, end, set_seed=None):
+    """Function  return a random datetime between two datetime objects.
+        Parameters:
+        -----------
+        start : datetime.datetime
             
-        """
-        for te in tes:
-            if 0 < (te-from_time).total_seconds()/(3600*24) < days:
-                return 1.
-        return 0.
+        end : datetime.datetime
+            
+        Returns:
+        --------
+        date : datetime.datetime
+            
+    """
+    from random import seed
+    from random import randrange
+    seed(set_seed) if set_seed else seed(237)
+    delta = end - start
+    int_delta = (delta.days * 24 * 60 * 60) + delta.seconds
+    random_second = randrange(int_delta)
+    _t=start + timedelta(seconds=random_second)
+    return start + timedelta(seconds=random_second)
+

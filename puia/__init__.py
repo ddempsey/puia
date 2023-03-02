@@ -148,7 +148,6 @@ STATIONS = {
             }
     }
 
-
 RATIO_NAMES=['vlar','lrar','rmar','dsar']
 BANDS = ['vlf','lf','rsam','mf','hf']
 
@@ -1423,7 +1422,7 @@ def get_classifier(classifier):
         grid : dict
             Scikit-learn hyperparameter grid dictionarie.
         Classifier options:
-        -------------------
+        ------------------- 
         SVM - Support Vector Machine.
         KNN - k-Nearest Neighbors
         DT - Decision Tree
