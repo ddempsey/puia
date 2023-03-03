@@ -57,7 +57,7 @@ from sklearn.svm import SVC
 
 # package imports
 from puia.utilities import datetimeify, load_dataframe, save_dataframe
-from puia.data import TremorData
+from puia.data import SeismicData
 
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
 _MONTH = timedelta(days=365.25/12)
@@ -171,9 +171,9 @@ class ForecastModel(object):
         feature_dir : str
             Directory to save feature matrices.
         ti : str, datetime.datetime
-            Beginning of analysis period. If not given, will default to beginning of tremor data.
+            Beginning of analysis period. If not given, will default to beginning of seismic data.
         tf : str, datetime.datetime
-            End of analysis period. If not given, will default to end of tremor data.
+            End of analysis period. If not given, will default to end of seismic data.
         data_streams : list
             Data streams and transforms from which to extract features. Options are 'X', 'diff_X', 'log_X', 'inv_X', and 'stft_X' 
             where X is one of 'rsam', 'mf', 'hf', or 'dsar'.            
@@ -184,8 +184,8 @@ class ForecastModel(object):
             Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
         Attributes:
         -----------
-        data : TremorData
-            Object containing tremor data.
+        data : SeismicData
+            Object containing seismic data.
         dtw : datetime.timedelta
             Length of window.
         dtf : datetime.timedelta
@@ -292,7 +292,7 @@ class ForecastModel(object):
         self.look_forward = look_forward
         self.data_streams = data_streams
         self.data_dir=data_dir
-        self.data = TremorData(self.station, parent=self, data_dir=data_dir)
+        self.data = SeismicData(self.station, parent=self, data_dir=data_dir)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
@@ -1465,7 +1465,7 @@ def get_classifier(classifier):
 def update_geonet_data():
     """ Download latest GeoNet data for WIZ.
     """
-    rs = TremorData()
+    rs = SeismicData()
     rs.update()
 
 def train_one_model(fM, ys, Nfts, modeldir, classifier, retrain, random_seed, method, random_state):

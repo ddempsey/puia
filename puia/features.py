@@ -14,7 +14,7 @@ import pandas as pd
 from multiprocessing import Pool
 #from __init__ import ForecastModel
 
-from .data import TremorData
+from .data import SeismicData
 from .utilities import datetimeify, load_dataframe, save_dataframe, _is_eruption_in#, random_date
 
 # constants
@@ -407,7 +407,7 @@ class FeaturesMulti(object):
             for sta in self.stations:
                 # get initial and final date of record 
                 if True:# get period from data
-                    _td=TremorData(station=sta, data_dir=self.tes_dir)
+                    _td=SeismicData(station=sta, data_dir=self.tes_dir)
                     _td.ti=_td.df.index[0]
                     _td.tf=_td.df.index[-1]
                     if sta is 'FWVZ':

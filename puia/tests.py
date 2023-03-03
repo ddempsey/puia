@@ -1,12 +1,12 @@
 # general imports
 import os, ast
 from inspect import getfile, currentframe
-from utilities import DummyClass
-from model import TrainModelCombined
-from forecast import ForecastTransLearn
+from .utilities import DummyClass
+from .model import CombinedModel
+from .forecast import ForecastTransLearn
 from datetime import datetime, timedelta
-from utilities import datetimeify, load_dataframe, save_dataframe
-from data import TremorData
+from .utilities import datetimeify, load_dataframe, save_dataframe
+from .data import SeismicData
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -17,9 +17,8 @@ day = timedelta(days=1)
 minute = timedelta(minutes=1)
 
 def test_data():
-    from data import TremorData
     wd=os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data'])
-    td=TremorData(station='TEST', data_dir=wd)
+    td=SeismicData(station='TEST', data_dir=wd)
     rs=td.df['rsam']
     td.parent=DummyClass(data_streams=['inv_rsam', 'diff_dsar'])
     td._compute_transforms()
@@ -57,7 +56,7 @@ if __name__ == "__main__":
         dt = timedelta(days=20)
         for station in stations:
             try:
-                td = TremorData(station=station)
+                td = SeismicData(station=station)
                 ti = td._probe_start()
                 if station == 'WIZ': ti = UTCDateTime(datetimeify('2008-01-01'))
                 if station == 'OKWR': ti = UTCDateTime(datetimeify('2008-01-01'))
@@ -119,7 +118,7 @@ if __name__ == "__main__":
         #
         ## (1) training models with 'stations'
         # combined features matrices are save in featdir in a folder named by the attributes 
-        fm0 = TrainModelCombined(stations=stations,window=win, overlap=1., dtb=dtb, dtf=dtf, datastream=datastream,
+        fm0 = CombinedModel(stations=stations,window=win, overlap=1., dtb=dtb, dtf=dtf, datastream=datastream,
             rootdir=rootdir,root=root,feat_dir=featdir, data_dir=datadir, tes_dir=datadir,feat_selc=fl_lt, model_dir=modeldir,
                 lab_lb=lab_lb,noise_mirror=True, savefile_type='csv') # 
         #
@@ -145,7 +144,7 @@ if __name__ == "__main__":
             - check sensitivity to random number seed for noise mirror (FeaturesMulti._load_tes())
             - criterias for feature selection (see FeaturesSta.reduce()
 
-        To do TrainModelCombined class"
+        To do CombinedModel class"
             - test that is working correctly
 
         To do ForecastTransLearn class:
@@ -211,7 +210,7 @@ if __name__ == "__main__":
                 ## (1) training models with 'stations'
                 # combined features matrices are saved in featdir in a folder named by the attributes 
                 # DED changed overlap from 1. to 0.75
-                fm0 = TrainModelCombined(stations=sta_train,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
+                fm0 = CombinedModel(stations=sta_train,window=win, overlap=0.75, dtb=dtb, dtf=dtf, datastream=datastream,
                     rootdir=rootdir,root=root,feat_dir=featdir, data_dir=datadir, tes_dir=datadir,feat_selc=fl_lt, model_dir=modeldir,
                         lab_lb=lab_lb,noise_mirror=noise_mirror, savefile_type='csv', no_erup = no_erup) # 
                 # DED change to 50 classifiers and Decision Trees

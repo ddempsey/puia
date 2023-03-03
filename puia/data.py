@@ -1,6 +1,6 @@
 """Data package for puia."""
 
-__author__ = """"""
+__author__ = """David Dempsey"""
 __email__ = ''
 __version__ = '0.1.0'
 
@@ -16,7 +16,7 @@ from time import sleep
 from scipy.integrate import cumtrapz
 from scipy.stats import mode
 
-from utilities import datetimeify, load_dataframe, save_dataframe, DummyClass
+from .utilities import datetimeify, load_dataframe, save_dataframe, DummyClass
 
 # ObsPy imports
 try:
@@ -139,7 +139,7 @@ class Data(object):
         Attributes:
         -----------
         df : pandas.DataFrame
-            Time series of tremor data and transforms.
+            Time series of seismic data and transforms.
         ti : datetime.datetime
             Beginning of data range.
         tf : datetime.datetime
@@ -149,11 +149,11 @@ class Data(object):
         update
             Download latest GeoNet data.
         get_data
-            Return tremor data in requested date range.
+            Return seismic data in requested date range.
         plot
-            Plot tremor data.
+            Plot seismic data.
     """
-    def __init__(self, station='WIZ', parent=None, data_dir=None, file=None, transforms=None):
+    def __init__(self, station, parent=None, data_dir=None, file=None, transforms=None):
         self._station=Station(station)
         self.n_jobs=6
         self.parent=parent
@@ -173,7 +173,7 @@ class Data(object):
         if self.exists:
             tm=[self.ti.year, self.ti.month, self.ti.day, self.ti.hour, self.ti.minute]
             tm += [self.tf.year, self.tf.month, self.tf.day, self.tf.hour, self.tf.minute]
-            return 'TremorData:{:d}/{:02d}/{:02d} {:02d}:{:02d} to {:d}/{:02d}/{:02d} {:02d}:{:02d}'.format(*tm)
+            return 'SeismicData:{:d}/{:02d}/{:02d} {:02d}:{:02d} to {:d}/{:02d}/{:02d} {:02d}:{:02d}'.format(*tm)
         else:
             return 'no data'
     def _all_cols(self):
@@ -292,7 +292,7 @@ class Data(object):
                 return 1.
         return 0.
     def get_data(self, ti=None, tf=None):
-        """ Return tremor data in requested date range.
+        """ Return seismic data in requested date range.
             Parameters:
             -----------
             ti : str, datetime.datetime
@@ -317,8 +317,8 @@ class Data(object):
         # subset data
         inds=(self.df.index>=ti)&(self.df.index<tf)
         return self.df.loc[inds]   
-    def plot(self, data_streams='rsam', save='tremor_data.png', ylim=None):
-        """ Plot tremor data.
+    def plot(self, data_streams='rsam', save='seismic_data.png', ylim=None):
+        """ Plot seismic data.
 
             Parameters:
             -----------
@@ -391,7 +391,7 @@ class Data(object):
         
         plt.savefig(save, dpi=400)
     def plot_zoom(self, data_streams='rsamF', save=None, range=None):
-        """ Plot tremor data.
+        """ Plot seismic data.
 
             Parameters:
             -----------
@@ -445,13 +445,13 @@ class Data(object):
         ax.grid()
         ax.set_ylabel('rsam')
         ax.set_xlabel('Time [year-month]')
-        ax.title.set_text('Station '+self.station+': Tremor data')
+        ax.title.set_text('Station '+self.station+': Seismic data')
         #plt.show()
         if not save:
-            save='../data/plots/'+self.station+'_tremor_data_zoom.png'
+            save='../data/plots/'+self.station+'_seismic_data_zoom.png'
         plt.savefig(save, dpi=400)
     def plot_intp_data(self, save=None, range_dates=None):
-        """ Plot interpolated tremor data
+        """ Plot interpolated seismic data
 
             Parameters:
             -----------
@@ -523,10 +523,10 @@ class Data(object):
         return self._station.name
     station=property(_get_station)
 
-class TremorData(Data):
+class SeismicData(Data):
     def __init__(self, station, parent=None, data_dir=None, transforms=None):
-        file='{:s}_tremor_data.csv'.format(station)
-        super(TremorData,self).__init__(station, parent, data_dir, file, transforms)
+        file='{:s}_seismic_data.csv'.format(station)
+        super(SeismicData,self).__init__(station, parent, data_dir, file, transforms)
     def update(self, ti=None, tf=None, n_jobs=None):
         """ Download latest GeoNet data.
             Parameters:
@@ -607,7 +607,12 @@ class TremorData(Data):
         client=FDSNClient(s['client_name'])    
         site=client.get_stations(station=self.station, level="response", channel=s['channel'])
         return site.networks[0].stations[0].start_date
-    
+
+class GeneralData(Data):
+    def __init__(self, station, name, parent=None, data_dir=None, transforms=None):
+        file=f'{station}_{name}_data.csv'
+        super(GeneralData,self).__init__(station, parent, data_dir, file, transforms)
+
 class Eruption(object):
     def __init__(self, date):
         self.date=datetimeify(date)
@@ -702,7 +707,7 @@ class Station(object):
             return data0
         else:
             return data
-    def get_tremor(self, t0, t1, pad=0.05, pad_f=0.05):
+    def get_seismic(self, t0, t1, pad=0.05, pad_f=0.05):
         t0=UTCDateTime(t0)
         t1=UTCDateTime(t1)
         padsec=pad*_DAYSEC
@@ -1072,7 +1077,7 @@ def outlierDetection(data, outlier_degree=0.5):
 
 ##
 
-class TremorDataCombined(TremorData):
+class SeismicDataCombined(SeismicData):
     def __init__(self, stations, parent=None):
         self.stations = stations
         self.station = '_'.join(sorted(self.stations))
@@ -1080,7 +1085,7 @@ class TremorDataCombined(TremorData):
         self.tes = []
         self.df = []
         for station in stations:
-            self._datas.append(TremorData(station, parent))
+            self._datas.append(SeismicData(station, parent))
             #fl = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_eruptive_periods.txt'.format(station)])
             fl = '..\\data\\'+'{:s}_eruptive_periods.txt'.format(station)
             with open(fl,'r') as fp:

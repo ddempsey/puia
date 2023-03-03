@@ -56,9 +56,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
 # package imports
-from utilities import datetimeify, load_dataframe, save_dataframe
-from data import TremorData
-from features import FeaturesSta, FeaturesMulti
+from .utilities import datetimeify, load_dataframe, save_dataframe
+from .data import SeismicData
+from .features import FeaturesSta, FeaturesMulti
 
 # constants
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
@@ -231,7 +231,7 @@ class ForecastModel(object):
             Extension denoting file format for save/load. Options are csv, pkl (Python pickle) or hdf.
         Attributes:
         -----------
-        data : TremorData
+        data : SeismicData
             Object containing tremor data.
         dtw : datetime.timedelta
             Length of window.
@@ -339,7 +339,7 @@ class ForecastModel(object):
         self.look_forward = look_forward
         self.data_streams = data_streams
         self.data_dir=data_dir
-        self.data = TremorData(self.station, parent=self, data_dir=data_dir)
+        self.data = SeismicData(self.station, parent=self, data_dir=data_dir)
         if any(['_' in ds for ds in data_streams]):
             self.data._compute_transforms()
         if any([d not in self.data.df.columns for d in self.data_streams]):
@@ -1730,8 +1730,8 @@ class ForecastTransLearn(object):
         else:
             makedir(self.predicdir+os.sep+self.root_pred)
         #
-        #self.data = TremorData(self.station_test, parent=self, data_dir=self.datadir)
-        self.data = TremorData(self.station_test, parent=self, data_dir=self.datadir)
+        #self.data = SeismicData(self.station_test, parent=self, data_dir=self.datadir)
+        self.data = SeismicData(self.station_test, parent=self, data_dir=self.datadir)
         # if any(['_' in ds for ds in self.data_streams]):
         #     self.data._compute_transforms()
         # if any([d not in self.data.df.columns for d in self.data_streams]):

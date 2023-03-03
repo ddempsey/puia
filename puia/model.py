@@ -56,9 +56,9 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.svm import SVC
 
 # package imports
-from utilities import datetimeify, load_dataframe, save_dataframe
-from data import TremorData
-from features import FeaturesSta, FeaturesMulti
+from .utilities import datetimeify, load_dataframe, save_dataframe
+from .data import SeismicData, GeneralData
+from .features import FeaturesSta, FeaturesMulti
 #from forecast import *
 
 # constants
@@ -170,7 +170,7 @@ def train_one_model(fM, yss, Nfts, modeldir, classifier, retrain, random_seed, m
     model_cv.fit(fMt,yst)
     _ = joblib.dump(model_cv.best_estimator_, fl, compress=3)
 
-class TrainModelCombined(object):
+class CombinedModel(object):
     ''' Object for train forecast models. 
         Training involve multiple stations, and multiple seismic datastreams.
         Models are saved to be used later by ForecastTransLearn class. 
@@ -257,21 +257,30 @@ class TrainModelCombined(object):
     train
         Construct classifier models.
     '''
-    def __init__(self, stations=None, window = 2., overlap=.75, datastream = None, feat_dir=None, 
-        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, model_dir=None,
+    def __init__(self, data, window = 2., overlap=.75, datastream=None, feat_dir=None, 
+        dtb=180., dtf=2., tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, model_dir=None,
         dt=None, lab_lb=2.,root=None,drop_features=None,savefile_type='pkl',feature_root=None,
-        rootdir=None, no_erup=None):
-        self.stations=stations
+        rootdir=None, no_erup=None):        
+        if data_dir:
+            self.data_dir=data_dir
+        else:
+            self.modeldir = f'{self.rootdir}/data/'
+        self._parse_data(data)
         self.window=window
         self.overlap = overlap
-        self.stations=stations
-        self.look_forward = dtf*day
+        self.look_forward = dtf
         self.dtw = timedelta(days=self.window)
         self.dto = (1.-self.overlap)*self.dtw
         self.iw = int(self.window*6*24)         
         self.io = int(self.overlap*self.iw) 
         #
-        self.datastream=datastream
+        if datastream:
+            self.data_streams=datastream
+        else:
+            self.data_streams=[]
+            for k1 in self.data.keys():
+                for k2 in self.data[k1].keys():
+                    self.data_streams += list(self.data[k1][k2].df.columns)
         self.n_jobs=4
         self.feat_dir=feat_dir
         if dt is None:
@@ -296,7 +305,7 @@ class TrainModelCombined(object):
         # naming convention and file system attributes
         self.savefile_type = savefile_type
         if root is None:
-            self.root = 'fm_{:3.2f}wndw_{:3.2f}ovlp_{:3.2f}lkfd'.format(self.window, self.overlap, self.look_forward)
+            self.root = f'fm_{self.window:3.2f}wndw_{self.overlap:3.2f}ovlp_{self.look_forward:3.2f}lkfd'
             self.root += '_'+((('{:s}-')*len(self.data_streams))[:-1]).format(*sorted(self.data_streams))
         else:
             self.root = root
@@ -305,21 +314,33 @@ class TrainModelCombined(object):
             self.rootdir = '/'.join(getfile(currentframe()).split(os.sep)[:-2])
         else:
             self.rootdir = rootdir
-        self.plotdir = r'{:s}/plots/{:s}'.format(self.rootdir, self.root)
+        self.plotdir = f'{self.rootdir}/plots/{self.root}'
         if model_dir:
             self.modeldir = model_dir+os.sep+self.root
         else:
-            self.modeldir = r'{:s}/models/{:s}'.format(self.rootdir, self.root)
+            self.modeldir = f'{self.rootdir}/models/{self.root}'
         if feat_dir is None:
-            self.feat_dir = r'{:s}/features'.format(self.rootdir)
+            self.feat_dir = f'{self.rootdir}/features'
         else:
             self.featdir = feat_dir
-        self.featfile = lambda ds,yr: (r'{:s}/fm_{:3.2f}w_{:s}_{:s}_{:d}.{:s}'.format(self.feat_dir,self.window,ds,self.station,yr,self.savefile_type))
-        self.preddir = r'{:s}/predictions/{:s}'.format(self.rootdir, self.root)
+        self.featfile = lambda ds,yr,st: (f'{self.feat_dir}/fm_{self.window:3.2f}w_{ds}_{st}_{yr:d}.{self.savefile_type}')
+        self.preddir = f'{self.rootdir}/predictions/{self.root}'
         self.no_erup=no_erup
         #
         #self._load_tes(tes_dir) # create self.tes (and self.tes_mirror) 
         #self._load() # create dataframe from feature matrices
+    def _parse_data(self, data):
+        if type(data) is dict:
+            station=list(data.keys())[0]
+            self.stations=[station,]
+            self.data={station:dict([(d,GeneralData(station,d,data_dir=self.data_dir)) for d in data[station]])}
+        elif type(data) is str:
+            self.stations=[data,]
+            self.data={data:{'seismic':SeismicData(data,data_dir=self.data_dir)}}
+        else:
+            self.stations=data
+            self.data=dict([(d,{'seismic':SeismicData(d,data_dir=self.data_dir)}) for d in data])
+
     def _load_feat(self):
         """ Load feature matrix and label vector.
             Parameters:
