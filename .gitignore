@@ -7,8 +7,8 @@ models/
 !models/models_README.md
 features/
 !features/features_README.md
-predictions/
-!predictions/predictions_README.md
+forecasts/
+!forecasts/forecasts_README.md
 plots/
 !plots/plots_README.md
 controller/

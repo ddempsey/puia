@@ -348,7 +348,7 @@ class FeaturesMulti(object):
             plot cluster in a 2D scatter plot
     """
     def __init__(self, stations=None, window = 2., datastream = 'zsc2_dsarF', feat_dir=None, 
-        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None,data_dir=None, 
+        dtb=None, dtf=None, tes_dir=None, feat_selc=None,noise_mirror=None, 
         dt=None, lab_lb=2.,savefile_type='pkl', no_erup=None):
         self.stations=stations
         if self.stations:
@@ -356,6 +356,7 @@ class FeaturesMulti(object):
             self.datastream=datastream
             self.n_jobs=4
             self.feat_dir=feat_dir
+            self.tes_dir=tes_dir
             if dt is None:
                 self.dt=timedelta(minutes=10)
             else:
@@ -374,9 +375,9 @@ class FeaturesMulti(object):
             self.noise_mirror=noise_mirror
             self.savefile_type=savefile_type
             self.no_erup=no_erup
-            self._load_tes(tes_dir) # create self.tes (and self.tes_mirror) 
+            self._load_tes() # create self.tes (and self.tes_mirror) 
             self._load() # create dataframe from feature matrices
-    def _load_tes(self,tes_dir):
+    def _load_tes(self):
         ''' Load eruptive times for list of volcanos (self.stations). 
             A dictionary is created with station names as key and list of eruptive times as values. 
             Parameters:

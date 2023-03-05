@@ -153,7 +153,7 @@ class Data(object):
         plot
             Plot seismic data.
     """
-    def __init__(self, station, parent=None, data_dir=None, file=None, transforms=None):
+    def __init__(self, station, parent=None, data_dir=None, file=None, transforms=None, headers_only=False):
         self._station=Station(station)
         self.n_jobs=6
         self.parent=parent
@@ -168,6 +168,8 @@ class Data(object):
         self.tf=None
         self.dt=None
         self.transforms=transforms
+        if headers_only:
+            return self._load(headers_only)
         self._assess()
     def __repr__(self):
         if self.exists:
@@ -189,13 +191,26 @@ class Data(object):
             self.eruption_record=EruptionRecord(eruptionfile)
         # compute transforms
         if self.transforms is not None:
+            from .transforms import transform_functions
             self.df
-            if self.parent is None:
-                ds=[]
-                for tf in self.transforms:
-                    ds+=['{:s}_{:s}'.format(tf,d) for d in self.df.columns]
-                self.parent=DummyClass(data_streams=ds)
-            self._compute_transforms()
+            cols=[]
+            for transform in self.transforms:
+                if '_' not in transform:
+                    if transform in self.df.columns:
+                        cols.append(transform)
+                    continue
+                tf,col=transform.split('_')
+                if col not in self.df.columns:
+                    continue
+                self._df[transform]=transform_functions[tf](self.df[col])
+                cols.append(transform)
+            self._df=self._df[cols]
+            # if self.parent is None:
+            #     ds=[]
+            #     for tf in self.transforms:
+            #         ds+=['{:s}_{:s}'.format(tf,d) for d in self.df.columns]
+            #     self.parent=DummyClass(data_streams=ds)
+            # self._compute_transforms()
     def _match_file(self, file):
         # check for specified file name
         if file is not None:
@@ -212,7 +227,11 @@ class Data(object):
             raise FileNotFoundError('file name ambiguity - found '+(len(fls)*'{:s}, ').format(*fls)[:-2] +' - use \'file\' keyword to specify')
         else:
             return fls[0]            
-    def _load(self):
+    def _load(self, headers_only=False):
+        if headers_only:
+            with open(self.file,'r') as fp:
+                self._hds=fp.readline().strip().split(',')[1:]
+            return
         # load data
         self._df=load_dataframe(self.file, index_col=0, parse_dates=[0,], infer_datetime_format=True)
         self._df_loaded=True
@@ -266,7 +285,7 @@ class Data(object):
             Fourier transform averaged across 40-45 periods), 'zsc' (z-score), 
             'zsc2' (z-score with 2-sample moving minimum).
         """
-        from transforms import transform_functions
+        from .transforms import transform_functions
         for col in self.df.columns:
             # inverse
             for tf in transform_functions.keys():
@@ -524,9 +543,9 @@ class Data(object):
     station=property(_get_station)
 
 class SeismicData(Data):
-    def __init__(self, station, parent=None, data_dir=None, transforms=None):
+    def __init__(self, station, parent=None, data_dir=None, transforms=None, headers_only=False):
         file='{:s}_seismic_data.csv'.format(station)
-        super(SeismicData,self).__init__(station, parent, data_dir, file, transforms)
+        super(SeismicData,self).__init__(station, parent, data_dir, file, transforms, headers_only)
     def update(self, ti=None, tf=None, n_jobs=None):
         """ Download latest GeoNet data.
             Parameters:
@@ -609,9 +628,9 @@ class SeismicData(Data):
         return site.networks[0].stations[0].start_date
 
 class GeneralData(Data):
-    def __init__(self, station, name, parent=None, data_dir=None, transforms=None):
+    def __init__(self, station, name, parent=None, data_dir=None, transforms=None, headers_only=False):
         file=f'{station}_{name}_data.csv'
-        super(GeneralData,self).__init__(station, parent, data_dir, file, transforms)
+        super(GeneralData,self).__init__(station, parent, data_dir, file, transforms, headers_only)
 
 class Eruption(object):
     def __init__(self, date):
