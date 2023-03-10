@@ -190,27 +190,24 @@ class Data(object):
         else:
             self.eruption_record=EruptionRecord(eruptionfile)
         # compute transforms
-        if self.transforms is not None:
-            from .transforms import transform_functions
-            self.df
-            cols=[]
-            for transform in self.transforms:
-                if '_' not in transform:
-                    if transform in self.df.columns:
-                        cols.append(transform)
-                    continue
-                tf,col=transform.split('_')
-                if col not in self.df.columns:
-                    continue
-                self._df[transform]=transform_functions[tf](self.df[col])
-                cols.append(transform)
-            self._df=self._df[cols]
-            # if self.parent is None:
-            #     ds=[]
-            #     for tf in self.transforms:
-            #         ds+=['{:s}_{:s}'.format(tf,d) for d in self.df.columns]
-            #     self.parent=DummyClass(data_streams=ds)
-            # self._compute_transforms()
+        if self.transforms is None:
+            return 
+        
+        from .transforms import transform_functions
+        self.df
+        cols=[]
+        for transform in self.transforms:
+            if '_' not in transform:
+                if transform in self.df.columns:
+                    cols.append(transform)
+                continue
+            tf,col=transform.split('_')
+            if col not in self.df.columns:
+                continue
+            self._df[transform]=transform_functions[tf](self.df[col])
+            cols.append(transform)
+        self._df=self._df[cols]
+        self.data_streams=self.transforms
     def _match_file(self, file):
         # check for specified file name
         if file is not None:

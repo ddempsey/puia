@@ -4,7 +4,7 @@ __author__ = """"""
 __email__ = ''
 __version__ = '0.1.0'
 
-import pickle
+import pickle, os
 import pandas as pd
 from datetime import datetime
 from pandas._libs.tslibs.timestamps import Timestamp
@@ -18,7 +18,10 @@ class DummyClass(object):
     # for mocking other classes
     def __init__(self,**kwargs):
         [self.__setattr__(*item) for item in kwargs.items()]
-        
+
+def makedir(name): 
+    os.makedirs(name, exist_ok=True)
+
 def datetimeify(t):
     """ Return datetime object corresponding to input string.
         Parameters:
