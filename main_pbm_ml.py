@@ -1,6 +1,6 @@
 
 from datetime import timedelta
-# from puia.tests import run_tests
+from puia.tests import run_tests
 from puia.model import ForecastModel,MultiVolcanoForecastModel,MultiDataForecastModel
 from puia.data import SeismicData, GeneralData
 from puia.utilities import datetimeify, load_dataframe
@@ -8,15 +8,18 @@ from glob import glob
 from sys import platform
 import pandas as pd
 import numpy as np
+import os
 
 _MONTH=timedelta(days=365.25/12)
+_DAY=timedelta(days=1.)
+_MIN=timedelta(days=1/24/60)
 
 # set path depending on OS
 if platform == "linux" or platform == "linux2":
     root=r'/media/eruption_forecasting/eruptions'
 elif platform == "win32":
     root=r'U:\Research\EruptionForecasting\eruptions'
-    # root=r'C:\Users\dde62\code\alberto\EruptionForecasting'
+    root=r'C:\Users\dde62\code\alberto\EruptionForecasting'
 
 DATA_DIR=f'{root}/data'
 FEAT_DIR=f'{root}/features'
@@ -24,11 +27,11 @@ MODEL_DIR=f'{root}/models'
 FORECAST_DIR=f'{root}/forecasts'
 
 TI=datetimeify('2011-01-03')
-TF=datetimeify('2019-12-31')
+TF=datetimeify('2019-12-29')
 
 def reliability(root, data_streams, eruption, Ncl, eruption2=None):
     # setup forecast model
-    n_jobs=6 
+    n_jobs=10
     root='{:s}_e{:d}'.format(root, eruption)
     if eruption2 is not None:
         root += '_p{:d}'.format(eruption2)
@@ -48,10 +51,12 @@ def reliability(root, data_streams, eruption, Ncl, eruption2=None):
         # remove duplicate linear features (because correlated), unhelpful fourier compoents
         # and fourier harmonics too close to Nyquist
     drop_features=['linear_trend_timewise','agg_linear_trend']  
-    if root is not 'benchmark':
-        drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
-        freq_max=fm.dtw//fm.dt//4
-        drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+    if True:
+        if root is not 'benchmark':
+            drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
+            #freq_max=fm.dtw//fm.dt//4
+            freq_max=int((2.*24*60)//(10.)//4)
+            drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
     
     # train a model with data from that eruption excluded
     te=fm.data.tes[eruption-1]
@@ -62,10 +67,11 @@ def reliability(root, data_streams, eruption, Ncl, eruption2=None):
     fm.train(TI, TF, drop_features=drop_features, retrain=False, Ncl=Ncl, n_jobs=n_jobs, exclude_dates=exclude_dates)        
     
     # test the model by constructing a hires forecast for excluded eruption
-    tf=te+_MONTH/28.
-    if eruption==3:
-        tf=te+_MONTH/28.*15
-    fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=tf, recalculate=False, n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    tf=te+_MONTH
+    #if eruption==3:
+    #    tf=te+_MONTH/28.*15
+    #fm.hires_forecast(ti=te-2*fm.dtw-fm.dtf, tf=tf, recalculate=True, n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    fm.hires_forecast(ti=te-_MONTH, tf=tf, recalculate=True, n_jobs=n_jobs, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
     pass
 
 def discriminability(root, data_streams, Ncl, eruption=None):
@@ -91,10 +97,11 @@ def discriminability(root, data_streams, Ncl, eruption=None):
     # remove duplicate linear features (because correlated), unhelpful fourier compoents
     # and fourier harmonics too close to Nyquist
     drop_features=['linear_trend_timewise','agg_linear_trend']  
-    if root is not 'benchmark':
-        drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
-        freq_max=fm.dtw//fm.dt//4
-        drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
+    if False:
+        if root is not 'benchmark':
+            drop_features += ['*attr_"imag"*','*attr_"real"*','*attr_"angle"*']
+            freq_max=fm.dtw//fm.dt//4
+            drop_features += ['*fft_coefficient__coeff_{:d}*'.format(i) for i in range(freq_max+1, 2*freq_max+2)]
     
     # construct hires model over entire dataset to compute false alarm rate
     exclude_dates=[]
@@ -112,7 +119,7 @@ def get_forecast(root, assumeUpdating=False):
     # Recursion L1
     # read in data for eruption
     if '_e' in root:
-        fls=glob(FORECAST_DIR+f'\{root}_hires\consensus*.pkl')        
+        fls=glob(d+f'\{root}_hires\consensus*.pkl')        
         ys=[]
         for fl in fls:
             ys.append(load_dataframe(fl))
@@ -132,8 +139,11 @@ def get_forecast(root, assumeUpdating=False):
     for i,yi in enumerate(y0s):
         inds=(y0.index>yi.index[0])&(y0.index<yi.index[-1])        
         y0.loc[inds,'consensus']=np.interp(y0.index[inds], xp=yi.index, fp=yi['consensus'])
-        
+    
+    # y0=pd.concat(y0s)
+    
     # Allow eruption out-of-sample simulations (i>0) to overwrite non-eruption (i=0)
+    # y0=y0[~y0.index.duplicated(keep='last')].sort_index()
     return y0[(y0.index>TI)&(y0.index<TF)]
 
 def performance(root):
@@ -178,84 +188,9 @@ def performance(root):
     plt.tight_layout()
     plt.savefig(f'{root}_forecasts.png',dpi=400)
 
-def alerts(y, threshold, tes, ialert):
-    # create contiguous alert windows
-    inds=np.where(y>threshold)[0]
-    t=y.index
-
-    if len(inds) == 0:
-        return 0, len(tes), 0, int(1e8), 0, 0
-
-    dinds=np.where(np.diff(inds)>ialert)[0]
-    alert_windows=list(zip(
-        [inds[0],]+[inds[i+1] for i in dinds],
-        [inds[i]+ialert for i in dinds]+[inds[-1]+ialert]
-        ))
-    alert_window_lengths=[np.diff(aw) for aw in alert_windows]
-    
-    # compute true/false positive/negative rates
-    tes=[te for te in tes]
-    nes=len(tes)
-    nalerts=len(alert_windows)
-    true_alert=0
-    false_alert=0
-    inalert=0.
-    missed=0
-    total_time=(t[-1] - t[0]).total_seconds()
-
-    for i0,i1 in alert_windows:
-
-        inalert += ((i1-i0)*dti).total_seconds()
-        # no eruptions left to classify, only misclassifications now
-        if len(tes) == 0:
-            false_alert += 1
-            continue
-
-        # eruption has been missed
-        while tes[0] < t[i0]:
-            tes.pop(0)
-            missed += 1
-            if len(tes) == 0:
-                break
-        if len(tes) == 0:
-            continue
-
-        # alert does not contain eruption
-        if not (tes[0] > t[i0] and tes[0] <= (t[i0] + (i1-i0)*dti)):
-            false_alert += 1
-            continue
-
-        # alert contains eruption
-        while tes[0] > t[i0] and tes[0] <= (t[i0] + (i1-i0)*dti):
-            tes.pop(0)
-            true_alert += 1
-            if len(tes) == 0:
-                break
-
-    # any remaining eruptions after alert windows have cleared must have been missed
-    missed += len(tes)
-    dur=inalert/total_time
-    true_negative=int((len(y)-np.sum(alert_window_lengths))/np.mean(alert_window_lengths))-missed
-    
-    return false_alert, missed, true_alert, true_negative, dur
-
-def forecast_skill(root):
-    from sklearn.metrics import matthews_corrcoef
-    y=get_forecast(f'{root}', assumeUpdating=True)
-    forecast_days=2.
-    dt=(y.index[1]-y.index[0]).total_seconds()/24/3600
-    ialert=int(forecast_days/dt)
-    td=SeismicData(station='WIZ', data_dir=DATA_DIR)
-    y_true=td._is_eruption_in(forecast_days, y.index)
-    
-    threshold=0.8
-    false_alert, missed, true_alert, true_negative, dur=alerts(y, threshold, td.tes, ialert)    
-    mcc=matthews_corrcoef(y_true, (y>threshold)*1.)
-    print(false_alert, missed, true_alert, true_negative, dur, mcc)
-
 def run_models(root, data_streams, Ncl=100):
-    # performance(root)
-    # return
+    #performance(root)
+    #return
     # assess reliability by cross validation on five eruptions
     for eruption in range(1,6):
         reliability(root, data_streams, eruption, Ncl)
@@ -264,73 +199,22 @@ def run_models(root, data_streams, Ncl=100):
     discriminability(root, data_streams, Ncl)
 
     # summarise forecast performance
-    # performance(root)
-    forecast_skill(root)
+    performance(root)
 
-def test_multi_volcano_forecast():
-    # one volcano, multiple data types - dictionary: station string and list of data types
-    data={'WIZ':['2019-12-01','2020-01-01'],
-          'FWVZ':['2006-10-01','2006-11-01']}
-    fm=MultiVolcanoForecastModel(data=data, window=2., overlap=0.75, look_forward=2., data_streams=['zsc2_rsamF','zsc2_dsarF'], root='seismic_WIZ_FWVZ',
-                                 feature_dir=FEAT_DIR, data_dir=DATA_DIR, model_dir=MODEL_DIR, forecast_dir=FORECAST_DIR)
-    
-    drop_features=['linear_trend_timewise','agg_linear_trend']  
-    # train a model with the following data excluded
-    i_WIZ=4         # 2019 Whakaari eruption
-    te1=fm.data['WIZ'].tes[i_WIZ]
-    i_FWVZ=0        # 2006 Ruapehu eruption
-    te2=fm.data['FWVZ'].tes[i_FWVZ]
-    
-    # input format for exclude dates: dictionary keyed by station (eruptions not excluded in this test)
-    exclude_dates={'WIZ':[[te1+_MONTH/12, te1+_MONTH/6]],
-                   'FWVZ':[[te2+_MONTH/12, te2+_MONTH/6]]}
-    
-    # train combined model
-    fm.train(drop_features=drop_features, retrain=True, Ncl=10, n_jobs=2, exclude_dates=exclude_dates)        
-    
-    # test the model by constructing a hires forecast for eruptions
-        # 2019 Whakaari eruption
-    tf=te1+_MONTH/28.
-    fm.hires_forecast(station='WIZ', ti=te1-2*fm.ft.dtw-fm.ft.dtf, tf=tf, recalculate=True, n_jobs=2, 
-                      root=f'WIZ_e{i_WIZ+1:d}_hires', threshold=1.0)
-        # 2006 Ruapehu eruption
-    tf=te2+_MONTH/28.
-    fm.hires_forecast(station='FWVZ', ti=te2-2*fm.ft.dtw-fm.ft.dtf, tf=tf, recalculate=True, n_jobs=2, 
-                      root=f'FWVZ_e{i_FWVZ+1:d}_hires', threshold=1.0)    
-
-def test_single_data_forecast():
-    fm=ForecastModel(data='TEST', window=2., overlap=0.75, look_forward=2., data_streams=['zsc2_rsamF','zsc2_dsarF'],
-        root='test', feature_dir=FEAT_DIR, data_dir=DATA_DIR, model_dir=MODEL_DIR, forecast_dir=FORECAST_DIR)   
-
-    drop_features=['linear_trend_timewise','agg_linear_trend']  
-    # train a model with data from that eruption excluded
-    te=fm.data.tes[-1]
-    exclude_dates=[[te+_MONTH/6, te+_MONTH/3]]
-    fm.train(drop_features=drop_features, retrain=False, Ncl=10, n_jobs=2, exclude_dates=exclude_dates)        
-    
-    # test the model by constructing a hires forecast for excluded eruption
-    tf=te+_MONTH/28.
-    fcst=fm.hires_forecast(ti=te-2*fm.ft.dtw-fm.ft.dtf, tf=tf, recalculate=True, n_jobs=2, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
-    am=fcst.alert_model(threshold=0.8)
-    roc=fcst.roc()
-    roc.plot()
-    
 def test_multi_data_forecast():
     # data_streams=['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF']
     # run_models(root='seismic_reference',data_streams=data_streams, Ncl=500)
 
-    data_streams=['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF',
-                    'zsc2_2019']
-    run_models(root='seismic_template',data_streams=data_streams, Ncl=500)
+    #data_streams=['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF',
+    #                'zsc2_2019']
+    #run_models(root='seismic_template',data_streams=data_streams, Ncl=500)
 
-    # data_streams=['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF',
-    #                 'zsc2_Qm', 'zsc2_Dm']
-    # run_models(root='seismic_physics',data_streams=data_streams, Ncl=500)
+    data_streams=['zsc2_rsamF','zsc2_mfF','zsc2_hfF','zsc2_dsarF',
+                     'zsc2_Qm', 'zsc2_Dm', 'zsc2_Nm']
+    run_models(root='seismic_physics',data_streams=data_streams, Ncl=500)
 
 def main():
-    test_single_data_forecast()
-    # test_multi_data_forecast()
-    # test_multi_volcano_forecast()
+    test_multi_data_forecast()
     pass
 
 if __name__=='__main__':

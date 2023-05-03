@@ -1091,33 +1091,3 @@ def outlierDetection(data, outlier_degree=0.5):
         outlier=False
     return outlier, maxIdx
 
-##
-
-class SeismicDataCombined(SeismicData):
-    def __init__(self, stations, parent=None):
-        self.stations = stations
-        self.station = '_'.join(sorted(self.stations))
-        self._datas = []
-        self.tes = []
-        self.df = []
-        for station in stations:
-            self._datas.append(SeismicData(station, parent))
-            #fl = os.sep.join(getfile(currentframe()).split(os.sep)[:-2]+['data','{:s}_eruptive_periods.txt'.format(station)])
-            fl = '..\\data\\'+'{:s}_eruptive_periods.txt'.format(station)
-            with open(fl,'r') as fp:
-                self._datas[-1].tes = [datetimeify(ln.rstrip()) for ln in fp.readlines()]
-            self.tes += self._datas[-1].tes
-            self.df.append(self._datas[-1].df)
-        self.df = pd.concat(self.df)
-        #self.tes = sorted(list(set(self.tes))) # ## testing: need to be checked
-        self.ti = np.min([station.ti for station in self._datas])
-        self.tf = np.max([station.tf for station in self._datas])
-    def _compute_transforms(self):
-        [station._compute_transforms() for station in self._datas]
-        self.df = pd.concat([station.df for station in self._datas])
-    def update(self, ti=None, tf=None, n_jobs = None):
-        [station.update(ti,tf,n_jobs) for station in self._datas]
-    def get_data(self, ti=None, tf=None):
-        return pd.concat([station.get_data(ti,tf) for station in self._datas])
-    def plot(self):
-        raise NotImplementedError('method not implemented')
