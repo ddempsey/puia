@@ -298,6 +298,56 @@ def test_multi_volcano_forecast():
     fm.hires_forecast(station='FWVZ', ti=te2-2*fm.ft.dtw-fm.ft.dtf, tf=tf, recalculate=True, n_jobs=2, 
                       root=f'FWVZ_e{i_FWVZ+1:d}_hires', threshold=1.0)    
 
+def test_cross_validation_multi_volcano():
+    pass
+    # define pool of volcanoes and record times 
+    data={'WIZ':['2011-01-03','2019-12-31'],
+            'FWVZ':['2005-01-01','2015-12-31'], 
+                'KRVZ':['2010-01-01','2019-12-31'],
+                    'CRPO':['2014-02-01','2017-04-22'],#['2014-07-02','2014-11-19'],
+                        'GOD':['2010-03-06','2010-05-29'],#:['2019-12-01','2020-01-01'],
+                            'VNSS':['2013-01-01','2019-12-31'],
+                                'BELO':['2007-08-22','2010-07-10'],
+                                    'VONK':['2014-01-02','2015-07-15'],
+                                        'VTUN':['2014-08-05','2015-12-30'],
+                                            'KINC':['2011-07-01','2013-01-15']}
+    # define eruptions to use per volcano 
+    eruptions={'WIZ':[0,2,3,4],
+            'FWVZ':[0,1,2], 
+                'KRVZ':[0],
+                    'CRPO':[2],#['2014-07-02','2014-11-19'],
+                        'GOD':[1],#:['2019-12-01','2020-01-01'],
+                            'VNSS':[0,1],
+                                'BELO':[0,1,2],
+                                    'VONK':[0],
+                                        'VTUN':[3],
+                                            'KINC':[0]}                         
+    # loop over eruptions (stattions and eruptions)
+    for sta in eruptions:
+        pass
+        for erup in sta:
+            pass
+            # define training model
+            fm=MultiVolcanoForecastModel(data=data, window=2., overlap=0.75, look_forward=2., data_streams=['zsc2_rsamF','zsc2_dsarF','zsc2_mfF','zsc2_hfF'], root='seismic_WIZ_FWVZ',
+                feature_dir=FEAT_DIR, data_dir=DATA_DIR, model_dir=MODEL_DIR, forecast_dir=FORECAST_DIR)
+            drop_features=['linear_trend_timewise','agg_linear_trend']
+            # exclude data from eruption (train a model with the following data excluded)
+            te1=fm.data[sta].tes[erup]
+            exclude_dates={'sta':[[te1+_MONTH/12, te1+_MONTH/6]]}
+            # train
+            fm.train(drop_features=drop_features, retrain=True, Ncl=300, n_jobs=12, exclude_dates=exclude_dates)        
+            # compute forecast over whole station period (and plot)
+            tf=te1+_MONTH*.1#/28.
+            ti=te1-_MONTH*.5#e2-2*fm.ft.dtw-fm.ft.dtf
+            fm.hires_forecast(station=sta, ti=ti, tf=tf, recalculate=True, n_jobs=12, 
+                root=f+sta+'_e{erup+1:d}_hires', threshold=1.0, save='_fc_eruption.png')
+            # plot forecast around eruption
+            tf=datetimeify(data[sta][1])#te9+_MONTH*.1#/28.
+            ti=datetimeify(data[sta][0])#te9-_MONTH*.5#e2-2*fm.ft.dtw-fm.ft.dtf
+            fm.hires_forecast(station='VTUN', ti=ti, tf=tf, recalculate=True, n_jobs=12, 
+                root=f'VTUN_e{i_VTUN+1:d}_hires', threshold=1.0, save='_fc_whole_period.png')
+            # save models and forecast
+    
 def test_single_data_forecast():
     fm=ForecastModel(data='TEST', window=2., overlap=0.75, look_forward=2., data_streams=['zsc2_rsamF','zsc2_dsarF'],
         root='test', feature_dir=FEAT_DIR, data_dir=DATA_DIR, model_dir=MODEL_DIR, forecast_dir=FORECAST_DIR)   
