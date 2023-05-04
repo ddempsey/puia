@@ -227,7 +227,21 @@ def forecast_one_model(fM, model_path, flp):
     save_dataframe(ypdf, fl, index=True, index_label='time')
     print('finish:',flp)
     return ypdf
+def _training_labels(_tl, tes, dtf, eds):
+        # one denotes non-eruptive data that has been used for model training
+        _tl=_tl*0+1
+        
+        # two denotes eruptive data that 
+        for te in tes:
+            _tl[(_tl.index>(te-dtf))&(_tl.index<te)]=2
+        
+        # zero denotes any data that has not been used for model training
+        for t0,t1 in eds:
+            t0,t1=[datetimeify(t) for t in [t0,t1]]
+            _tl[(_tl.index>t0)&(_tl.index<t1)]=0
 
+        return _tl
+    
 class ForecastModel(object):
     """ Object for train and running forecast models.
         
@@ -476,8 +490,8 @@ class ForecastModel(object):
         fM, ys=self._load_data(ti, tf)
         fM=_drop_features(fM, drop_features)
         return fM, ys
-    def train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
-            drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[], method=0.75):
+    
+    def train(self, *args, **kwargs):
         """ Construct classifier models.
             Parameters:
             -----------
@@ -519,6 +533,10 @@ class ForecastModel(object):
             NB - Naive Bayes
             LR - Logistic Regression
         """
+        self._tl=_training_labels(self.data.df[self.data.df.columns[0]], self.data.tes, self.ft.dtf, kwargs['exclude_dates'])
+        self._train(*args, **kwargs)
+    def _train(self, ti=None, tf=None, Nfts=20, Ncl=500, retrain=False, classifier="DT", random_seed=0,
+            drop_features=[], n_jobs=6, exclude_dates=[], use_only_features=[], method=0.75):
         self._trained=True
         self.classifier=classifier
         self.exclude_dates=exclude_dates
@@ -708,11 +726,11 @@ class ForecastModel(object):
         iy=ys.index.values
         y0=self.ft._get_label(iy)
         ilf=int(self.ft.look_forward*24*3600/self.ft.dt.total_seconds())
-        # forecast=pd.DataFrame(y=y, columns=['consensus'], iy=ys.index)
-        forecast=Forecast(y, y0, iy, ilf, self.data.tes)
+        tl=np.interp(pd.to_datetime(iy), self._tl.index, self._tl.values)
+        tl[np.where((tl>0)&(tl<=1))]=1
+        tl[np.where((tl>1)&(tl<=2))]=2
+        forecast=Forecast(y, y0, iy, ilf, self.data.tes, tl)
         forecast.save(fcst_fl)
-
-        # save_dataframe(forecast, fcst_fl, index=True, index_label='time')
         
         # memory management
         if len(run_forecast)>0:
@@ -764,6 +782,7 @@ class ForecastModel(object):
         _fm=ForecastModel(self.ft.window, 1., self.ft.look_forward, data=self.data.station, 
             data_streams=self.data_streams, root=root, savefile_type=self.savefile_type,
             feature_dir=self.ft.feat_dir, data_dir=self.data_dir)
+        _fm._tl=self._tl
         if type(self) is MultiDataForecastModel:
             _fm.data=self.data
         # _fm.compute_only_features=list(set([ft.split('__')[1] for ft in self._collect_features()[0]]))
@@ -1066,10 +1085,17 @@ class MultiVolcanoForecastModel(ForecastModel):
                 data[station]=[datetimeify(t) for t in data[station]]
         self.data=dict(zip(self.stations, datas))
         self._train_dates=data
+    def train(self, *args, **kwargs):
+        self._tls={}
+        for station, data in self.data.items():
+            _tl=_training_labels(data.df[data.df.columns[0]], data.tes, self.ft.dtf, kwargs['exclude_dates'][station])
+            self._tls.update({station:_tl})            
+        self._train(*args, **kwargs)
     def hires_forecast(self, station, *args, **kwargs):
         from copy import deepcopy
         data_copy=deepcopy(self.data)
         self.data=data_copy[station]
+        self._tl=self._tls[station]
         ys=self._hires_forecast(*args, **kwargs)
         self.data=data_copy
         return ys

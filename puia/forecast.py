@@ -57,8 +57,8 @@ from sklearn.svm import SVC
 
 # package imports
 from .utilities import datetimeify, load_dataframe, save_dataframe
-from .data import SeismicData
-from .features import FeaturesSta, FeaturesMulti
+# from .data import SeismicData
+# from .features import FeaturesSta, FeaturesMulti
 
 # constants
 all_classifiers = ["SVM","KNN",'DT','RF','NN','NB','LR']
@@ -80,15 +80,16 @@ Todo:
 '''
 # Forecast class
 class Forecast(object):
-    def __init__(self, y, y0, iy, ilf, tes):
+    def __init__(self, y, y0, iy, ilf, tes, tl):
         '''
             y - forecast
             y0 - label
             iy - index
             ilf - number of indices in look forward period
             tes - list of eruption dates
+            tl - training labels (0=out-of-sample, 1=pseudo out-of-sample, 2=in-sample)
         '''
-        self.df=pd.DataFrame(zip(y,y0), columns=['y','label'], index=iy)
+        self.df=pd.DataFrame(zip(y,y0,tl), columns=['consensus','label','training label'], index=iy)
         self.ilf=ilf
         tes=[pd.Timestamp(te) for te in tes]
         self.tes=[te for te in tes if iy[0]<te<=iy[-1]]        # eruption dates
@@ -184,9 +185,8 @@ class Forecast(object):
         if thresholds is None:
             thresholds=np.linspace(0,1,101)
         return ROC(self, thresholds)
-    
     def _get_y(self):
-        return self.df['y'].values
+        return self.df['consensus'].values
     y=property(_get_y)
     def _get_y0(self):
         return self.df['label'].values
@@ -194,6 +194,9 @@ class Forecast(object):
     def _get_iy(self):
         return self.df.index
     iy=property(_get_iy)
+    def _get_tl(self):
+        return self.df['training label'].values
+    tl=property(_get_tl)
 
 class AlertModel(object):
     def __init__(self, y, iy, ilf, threshold):        
@@ -258,7 +261,7 @@ class ROC(object):
         else:            
             plt.show()        
 
-def merge_forecasts(forecasts):
+def merge_forecasts(forecasts, priority='last'):
     # check errors
     ilfs=[fcst.ilf for fcst in forecasts]
     if len(np.unique(ilfs))>1:
@@ -268,7 +271,16 @@ def merge_forecasts(forecasts):
         return forecasts[0]
     
     # merge dataframes into first list entry
-    forecasts[0].df=pd.concat([fcst.df for fcst in forecasts], sort=False)
+    df=pd.concat([fcst.df for fcst in forecasts], sort=False)
+    if priority in ['first', 'last']:
+        # rule for keeping overlaps
+        df=df.loc[~df.index.duplicated(keep=priority)]
+    elif priority=='sample':
+        # when duplicates present, retain with value minimum out-of-sample label
+        df=df.rename_axis('time').sort_values(by=['time','training label'], ascending=[False, False])
+        df=df.loc[~df.index.duplicated(keep='first')]
+
+    forecasts[0].df=df
     return forecasts[0]
     
 def load_forecast(fl):

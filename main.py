@@ -3,6 +3,7 @@ from datetime import timedelta
 # from puia.tests import run_tests
 from puia.model import ForecastModel,MultiVolcanoForecastModel,MultiDataForecastModel
 from puia.data import SeismicData, GeneralData
+from puia.forecast import merge_forecasts
 from puia.utilities import datetimeify, load_dataframe
 from glob import glob
 from sys import platform
@@ -361,6 +362,9 @@ def test_single_data_forecast():
     # test the model by constructing a hires forecast for excluded eruption
     tf=te+_MONTH/28.
     fcst=fm.hires_forecast(ti=te-2*fm.ft.dtw-fm.ft.dtf, tf=tf, recalculate=True, n_jobs=2, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    fcst1=fm.hires_forecast(ti=te, tf=te+_MONTH/2, recalculate=True, n_jobs=2, root=r'{:s}_hires'.format(fm.root), threshold=1.0)
+    fcst1.df['training label']=fcst1.df['training label']+1
+    fcst0=merge_forecasts([fcst, fcst1], priority='sample')    
     am=fcst.alert_model(threshold=0.8)
     roc=fcst.roc()
     roc.plot()
@@ -377,10 +381,18 @@ def test_multi_data_forecast():
     #                 'zsc2_Qm', 'zsc2_Dm']
     # run_models(root='seismic_physics',data_streams=data_streams, Ncl=500)
 
+def test_forecast_conversion():
+    fl=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts\cve_VTUN_MBGH_VRLE_BELO'
+    fl0=fl+r'\BELO_0\consensus_2007.pkl'
+    fl1=fl+r'\BELO_1\consensus_2007.pkl'
+    y=load_dataframe(fl0)
+    print('')
+
 def main():
     test_single_data_forecast()
     # test_multi_data_forecast()
     # test_multi_volcano_forecast()
+    # test_forecast_conversion()
     pass
 
 if __name__=='__main__':
