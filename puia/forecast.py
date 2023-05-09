@@ -262,6 +262,24 @@ class ROC(object):
             plt.show()        
 
 def merge_forecasts(forecasts, priority='last'):
+    ''' Merge multiple forecasts into combined forecast.
+
+        parameters:
+            forecasts - List of Forecast objects to merge.
+
+            priority - Rule for merging. Default is 'last' where duplicates occurring
+                later in the forecasts list are kept. Alternatives are 'first' and 'sample'. For 'sample',
+                out-of-sample duplicates are kept and in-sample are dropped.
+
+        returns:
+            merged Forecast object
+
+        notes:
+            forecasts must have same sample spacing
+
+    '''
+    if len(forecasts)==0:
+        raise ValueError('forecast list is empty')
     # check errors
     ilfs=[fcst.ilf for fcst in forecasts]
     if len(np.unique(ilfs))>1:
@@ -270,17 +288,80 @@ def merge_forecasts(forecasts, priority='last'):
     if len(forecasts)==1:
         return forecasts[0]
     
+    # pre-processing for forecast merge
+    dts=[np.unique(np.diff(fcst.df.index)) for fcst in forecasts]
+    for dt in dts:
+        if np.timedelta64(0,'ns') in dt:
+            raise ValueError('input forecast has duplicate indices')
+    dts=np.unique([dt[0] for dt in dts])
+    if len(dts)>1:
+        raise ValueError('input forecasts do not have the same sample spacing')
+    dt0=dts[0]
+
     # merge dataframes into first list entry
     df=pd.concat([fcst.df for fcst in forecasts], sort=False)
+
+    # check overlap problems to be addressed
+    dts=np.unique(np.diff(df.index.sort_values()))
+    if np.timedelta64(0,'ns') in dts:
+        has_duplicates=True
+    else: 
+        has_duplicates=False
+    if has_duplicates and len(dts)>2:
+        has_noncoincident_overlap=True
+    elif not has_duplicates and len(dts)>1:
+        has_noncoincident_overlap=True
+    else:
+        has_noncoincident_overlap=False
+    
+    if has_noncoincident_overlap:
+        overlap_score=np.zeros(len(forecasts))
+        for i,fcst_i in enumerate(forecasts):
+            for j,fcst_j in enumerate(forecasts):
+                if i==j:
+                    continue
+                ndt=(fcst_i.iy[0]-fcst_j.iy[0])/dt0 % 1
+
+                if ndt != 0:
+                    overlap_score[i]+=1
+        priority_score=[o_s*fcst.iy.shape[0] for o_s,fcst in zip(overlap_score,forecasts)]
+        
+        i=np.argmax(priority_score)
+        ti=np.min([fcst.iy[0] for fcst in forecasts])
+        tf=np.max([fcst.iy[-1] for fcst in forecasts])
+        ndti=int((forecasts[i].iy[0]-ti)/dt0)
+
+        ti0=forecasts[i].iy[0]-ndti*dt0
+        tf0=ti0+int((tf-ti)/dt0)*dt0
+        idx=pd.date_range(ti0,tf0,freq=timedelta(seconds=dt0/np.timedelta64(1,'ns')/1.e9))
+        dfs=[]
+        for fcst in forecasts:
+            t0,t1=fcst.iy[0],fcst.iy[-1]
+            idxi=idx[(idx>=t0)&(idx<t1)]
+            # df=fcst.df.reindex().interpolate(method='linear')
+            df=fcst.df.reindex(fcst.df.index.union(idxi)).interpolate(method='linear').reindex(idxi)
+            
+            dfs.append(df)
+        df=pd.concat(dfs, sort=False)
+
+
     if priority in ['first', 'last']:
         # rule for keeping overlaps
         df=df.loc[~df.index.duplicated(keep=priority)]
     elif priority=='sample':
         # when duplicates present, retain with value minimum out-of-sample label
-        df=df.rename_axis('time').sort_values(by=['time','training label'], ascending=[False, False])
+        df=df.rename_axis('time').sort_values(by=['time','training label'], ascending=[True, True])
         df=df.loc[~df.index.duplicated(keep='first')]
+    else:
+        raise ValueError(f'unrecognized priority flag \'{priority}\'')
 
-    forecasts[0].df=df
+    tess=[]
+    for fcst in forecasts:
+        tess += fcst.tes
+
+    forecasts[0].df=df.sort_index()
+    forecasts[0].tes=list(set(tess))
+    
     return forecasts[0]
     
 def load_forecast(fl):
