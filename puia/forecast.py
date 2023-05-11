@@ -183,7 +183,9 @@ class Forecast(object):
         return am
     def roc(self, thresholds=None, save=None):
         if thresholds is None:
-            thresholds=np.linspace(0,1,101)
+            thresholds=np.linspace(0,1,101)[::-1]
+        else:
+            thresholds=np.sort(thresholds)[::-1]
         return ROC(self, thresholds)
     def _get_y(self):
         return self.df['consensus'].values
