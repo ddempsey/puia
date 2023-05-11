@@ -513,13 +513,24 @@ def test_forecast_merge():
             # plt.show()
             # print('')
         
+    forecast=merge_forecasts(forecasts, priority='sample')
+
+def test_multivolcano_roc():
+    dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts\cve_VNSS_BELO_REF_AUH_CETU_GSTR_PVV_OKWR_SHW'
+    forecasts=[load_forecast(fl) for fl in glob(f'{dr}\\_forecast_*.pkl')]
+    forecast=merge_forecasts(forecasts, priority='multi-volcano')
+    roc=forecast.roc()
+    roc.plot(xscale='linear')
+    print('')
             
 def main():
     # test_single_data_forecast()
     # test_multi_data_forecast()
     # test_multi_volcano_forecast()
     # test_forecast_conversion()
-    test_forecast_merge()
+    # test_forecast_merge()
+    test_multivolcano_roc()
+
     pass
 
 if __name__=='__main__':

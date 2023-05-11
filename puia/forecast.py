@@ -197,6 +197,16 @@ class Forecast(object):
     def _get_tl(self):
         return self.df['training label'].values
     tl=property(_get_tl)
+class MultiVolcanoForecast(object):
+    def __init__(self, forecasts):
+        self.forecasts=forecasts
+    def roc(self, thresholds=None, save=None):
+        if thresholds is None:
+            thresholds=np.linspace(0,1,101)[::-1]
+        else:
+            thresholds=np.sort(thresholds)[::-1]
+        self.rocs=[ROC(forecast, thresholds) for forecast in self.forecasts]
+        return MultiVolcanoROC(self.rocs)        
 
 class AlertModel(object):
     def __init__(self, y, iy, ilf, threshold):        
@@ -233,7 +243,9 @@ class ROC(object):
             arr=[am.__getattribute__(att) for am in self.alert_models]
             arr=np.array(arr)
             self.__setattr__(att, arr)
-        self.auc=np.trapz(self.true_positive, self.fraction_inalert)
+        self.number_eruptions=len(fcst.tes)
+        self.auc=np.trapz(self.true_positive/self.number_eruptions, self.fraction_inalert)
+        self.forecast_days=(fcst.iy[-1]-fcst.iy[0])/_DAY
     def plot(self, save=None, reference=None):
         ''' plot ROC curve
 
@@ -241,18 +253,18 @@ class ROC(object):
             reference - other ROC curve(s) to plot. Can be single ROC object, or dictionary of ROC objects
         '''
         f,ax=plt.subplots(1,1)
-        ax.plot(self.fraction_inalert*100, self.true_positive*100, 'k-', label=f'ROC ({1.-self.auc})')
+        ax.plot(self.fraction_inalert*100, self.true_positive/self.number_eruptions*100, 'k-', label=f'ROC ({1.-self.auc})')
         ax.set_xlabel('time in warning [%]')
         ax.set_ylabel('eruptions in warning [%]')
 
         if reference is not None:
             if type(reference) is ROC:
-                ax.plot(reference.fraction_inalert*100, reference.true_positive*100, 'k:', 
+                ax.plot(reference.fraction_inalert*100, reference.true_positive/reference.number_eruptions*100, 'k:', 
                         label=f'reference ({1.-reference.auc})')
             if type(reference) is dict:                
                 for k,c in zip(reference.keys(),['b','g','r','c','y','m']):
                     v=reference[k]
-                    ax.plot(v.fraction_inalert*100, v.true_positive*100, c+'-', label=k+f' ({1.-v.auc})')
+                    ax.plot(v.fraction_inalert*100, v.true_positive/v.number_eruptions*100, c+'-', label=k+f' ({1.-v.auc})')
             ax.legend()
         ax.set_xscale('log')
 
@@ -260,6 +272,38 @@ class ROC(object):
             plt.savefig(save, dpi=400)
         else:            
             plt.show()        
+class MultiVolcanoROC(object):
+    def __init__(self, rocs):
+        self.rocs=rocs
+    def plot(self, save=None, reference=None, xscale='log'):
+        f,ax=plt.subplots(1,1)
+        inalert=np.sum([r.inalert for r in self.rocs], axis=0)
+        total_forecast_days=np.sum([r.forecast_days for r in self.rocs])
+        fraction_inalert=inalert/total_forecast_days
+        
+        true_positive=np.sum([r.true_positive for r in self.rocs], axis=0)
+        total_eruptions=np.sum([r.number_eruptions for r in self.rocs])
+        auc=np.trapz(true_positive/total_eruptions, fraction_inalert)
+        percentage_inalert=fraction_inalert*100
+        percentage_true_positive=true_positive/total_eruptions*100
+        
+        ax.plot(percentage_inalert, percentage_true_positive, 'k-', label=f'ROC ({1.-auc})')
+        ax.set_xlabel('time in warning [%]')
+        ax.set_ylabel('eruptions in warning [%]')
+        pmin,pmax=percentage_inalert[np.where(percentage_inalert>0)[0][0]],percentage_inalert[-1]
+        
+        if xscale=='log':
+            ax.set_xscale('log')
+            p=10**np.linspace(np.log10(pmin),np.log10(pmax),100)
+        elif xscale=='linear':
+            p=np.linspace(pmin,pmax,100)
+        ax.plot(p,p,'k:',lw=0.5)
+        ax.legend()
+
+        if save is not None:
+            plt.savefig(save, dpi=400)
+        else:            
+            plt.show()    
 
 def merge_forecasts(forecasts, priority='last'):
     ''' Merge multiple forecasts into combined forecast.
@@ -268,14 +312,15 @@ def merge_forecasts(forecasts, priority='last'):
             forecasts - List of Forecast objects to merge.
 
             priority - Rule for merging. Default is 'last' where duplicates occurring
-                later in the forecasts list are kept. Alternatives are 'first' and 'sample'. For 'sample',
-                out-of-sample duplicates are kept and in-sample are dropped.
+                later in the forecasts list are kept. Alternatives are 'first', 'sample' and 'multi-volcano'. 
+                For 'sample', out-of-sample duplicates are kept and in-sample are dropped. For 'multi-volcano',
+                forecasts are simply concatenated with 
 
         returns:
             merged Forecast object
 
         notes:
-            forecasts must have same sample spacing
+            forecasts must have same sample spacing 
 
     '''
     if len(forecasts)==0:
@@ -298,6 +343,9 @@ def merge_forecasts(forecasts, priority='last'):
         raise ValueError('input forecasts do not have the same sample spacing')
     dt0=dts[0]
 
+    if priority=='multi-volcano':
+        return MultiVolcanoForecast(forecasts)
+    
     # merge dataframes into first list entry
     df=pd.concat([fcst.df for fcst in forecasts], sort=False)
 
