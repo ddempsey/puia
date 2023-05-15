@@ -387,7 +387,7 @@ def test_multi_data_forecast():
 def test_forecast_conversion():
     dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts'
     drs=glob(f'{dr}\\cve*')
-    for dr in drs:
+    for dr in ['U:\\Research\\EruptionForecasting\\eruptions\\aardid\\puia_rep\\forecasts\\cve_WIZ_FWVZ_KRVZ']:#drs:
         stations=dr.split(os.sep)[-1].split('_')[1:]
         print(stations, flush=True)
         for station in stations:
@@ -430,94 +430,157 @@ def test_forecast_conversion():
                 fcst=Forecast(y=y, y0=y0, iy=iy, ilf=288, tes=dt.tes, tl=tl)
                 fcst.save(fl=flnew)
 
-    dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts'
-    drs=glob(f'{dr}\\cvv*')
-    for dr in drs:
-        if dr.endswith('_HR'):
-            continue
-        stations=dr.split(os.sep)[-1].split('_')[1:]
-        print(stations, flush=True)
-        for station in stations:
-            print(f'  {station}', flush=True)
-            fls=glob(f'{dr}\\{station}\\consensus*.pkl')
-            if len(fls)==0:
+    if True:
+        dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts'
+        drs=glob(f'{dr}\\cvv*')
+        for dr in drs:
+            if dr.endswith('_HR'):
                 continue
-            dt=SeismicData(station=station, data_dir=f'{root}\data')
-            for fl in fls:
-                print(f'      {fl.split(os.sep)[-1]}', flush=True)
-                flnew=fl.replace('consensus','forecast')
-                if os.path.isfile(flnew):
+            stations=dr.split(os.sep)[-1].split('_')[1:]
+            print(stations, flush=True)
+            for station in stations:
+                print(f'  {station}', flush=True)
+                fls=glob(f'{dr}\\{station}\\consensus*.pkl')
+                if len(fls)==0:
                     continue
-                df=load_dataframe(fl)
-                y=df['consensus'].values
-                iy=df.index
+                dt=SeismicData(station=station, data_dir=f'{root}\data')
+                for fl in fls:
+                    print(f'      {fl.split(os.sep)[-1]}', flush=True)
+                    flnew=fl.replace('consensus','forecast')
+                    if os.path.isfile(flnew):
+                        continue
+                    df=load_dataframe(fl)
+                    y=df['consensus'].values
+                    iy=df.index
 
-                y0=np.array([dt._is_eruption_in(days=2., from_time=t) for t in pd.to_datetime(iy)])
-                tl=y0+1.
-                for te in dt.tes:
-                    tl[np.where((iy>(te-2*_DAY))&(iy<=te))]=0
-                fcst=Forecast(y=y, y0=y0, iy=iy, ilf=288, tes=dt.tes, tl=tl)
-                fcst.save(fl=flnew)
+                    y0=np.array([dt._is_eruption_in(days=2., from_time=t) for t in pd.to_datetime(iy)])
+                    tl=y0+1.
+                    for te in dt.tes:
+                        tl[np.where((iy>(te-2*_DAY))&(iy<=te))]=0
+                    fcst=Forecast(y=y, y0=y0, iy=iy, ilf=288, tes=dt.tes, tl=tl)
+                    fcst.save(fl=flnew)
 
 def test_forecast_merge():
-    dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts'
-    drs=glob(f'{dr}\\cve*')
-    for dr in drs:
-        if dr.endswith('cve_WIZ_BELO_SHW_ONTA'):
-            continue
-        stations=dr.split(os.sep)[-1].split('_')[1:]
-        print(stations, flush=True)
-        for station in stations:
-            save_file=f'{dr}\\_forecast_master_{station}.pkl'
-            if os.path.isfile(save_file):
-                continue
-            fls=glob(f'{dr}\\00\\{station}\\forecast*.pkl')
-            forecast0=[]
-            for fl in fls:
-                forecast=load_forecast(fl)
-                forecast0.append(forecast)
-            forecast0=merge_forecasts(forecast0)
+    if True:
+        dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts'
+        drs=glob(f'{dr}\\cve*')
+        for dr in drs:
+            #if dr.endswith('cvv_WIZ_FWVZ_KRVZ_ONTA_COP_VNSS_BELO_REF_CETU_GSTR_PVV_OKWR_SHW_VTUN_MBGH_VRLE'):
+            #    continue
+            stations=dr.split(os.sep)[-1].split('_')[1:]
+            print(stations, flush=True)
+            for station in stations:
+                save_file=f'{dr}\\_forecast_master_{station}.pkl'
+                if os.path.isfile(save_file):
+                    continue
+                fls=glob(f'{dr}\\00\\{station}\\forecast*.pkl')
+                forecast0=[]
+                for fl in fls:
+                    forecast=load_forecast(fl)
+                    forecast0.append(forecast)
+                forecast0=merge_forecasts(forecast0)
 
-            # f,ax=plt.subplots(1,1)
-            # ax.plot(forecast0.iy,forecast0.y, 'b--', lw=2)
+                # f,ax=plt.subplots(1,1)
+                # ax.plot(forecast0.iy,forecast0.y, 'b--', lw=2)
 
-            fls=glob(f'{dr}\\{station}_*\\forecast*.pkl')
-            forecasts=[forecast0]
-            for fl in fls:
-                forecast=load_forecast(fl)
+                fls=glob(f'{dr}\\{station}_*\\forecast*.pkl')
+                forecasts=[forecast0]
+                for fl in fls:
+                    forecast=load_forecast(fl)
 
-                iy=forecast.iy
-                for te in forecast.tes:
-                    inds=(iy>(te-14*_DAY))&(iy<(te+14*_DAY))
-                    forecast.df['training label'][inds]=forecast.df['training label'][inds]*0
-                forecasts.append(forecast)
+                    iy=forecast.iy
+                    for te in forecast.tes:
+                        inds=(iy>(te-14*_DAY))&(iy<(te+14*_DAY))
+                        forecast.df['training label'][inds]=forecast.df['training label'][inds]*0
+                    forecasts.append(forecast)
 
-            forecast=merge_forecasts(forecasts, priority='sample')
-            forecast.save(save_file)
-            # from random import shuffle
-            # shuffle(forecasts)
-            # forecast1=merge_forecasts(forecasts, priority='sample')
-            # f,ax=plt.subplots(1,1)
-            # ax.plot(forecast.iy,forecast.y, 'k-')
-            # ax.plot(forecast1.iy,forecast1.y, 'r-', lw=0.5)
-            # plt.show()
-            # for te in forecast.tes:
-            #     ax.axvline(te,color='r',linewidth=0.5,linestyle='--')
+                forecast=merge_forecasts(forecasts, priority='sample')
+                forecast.save(save_file)
+                # from random import shuffle
+                # shuffle(forecasts)
+                # forecast1=merge_forecasts(forecasts, priority='sample')
+                # f,ax=plt.subplots(1,1)
+                # ax.plot(forecast.iy,forecast.y, 'k-')
+                # ax.plot(forecast1.iy,forecast1.y, 'r-', lw=0.5)
+                # plt.show()
+                # for te in forecast.tes:
+                #     ax.axvline(te,color='r',linewidth=0.5,linestyle='--')
 
-            # forecast_compare=load_dataframe(f'{dr}\\_consensus_master_{station}.pkl')
-            # ax.plot(forecast_compare.index,forecast_compare['consensus'], 'g-')
+                # forecast_compare=load_dataframe(f'{dr}\\_consensus_master_{station}.pkl')
+                # ax.plot(forecast_compare.index,forecast_compare['consensus'], 'g-')
+                
+                # for fcst in forecasts[1:]:
+                #     ax.plot(fcst.iy,fcst.y, 'r--', lw=1)
+
+                # plt.show()
+                # print('')
             
-            # for fcst in forecasts[1:]:
-            #     ax.plot(fcst.iy,fcst.y, 'r--', lw=1)
+    #forecast=merge_forecasts(forecasts, priority='sample')
+    if True:
+        dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts'
+        drs=glob(f'{dr}\\cvv*')
+        for dr in drs:
+            if dr.endswith('cvv_WIZ_FWVZ_KRVZ_ONTA_COP_SHW'):
+                print('')
+            stations=dr.split(os.sep)[-1].split('_')[1:]
+            print(stations, flush=True)
+            for station in stations:
+                save_file=f'{dr}\\_forecast_master_{station}.pkl'
+                if os.path.isfile(save_file):
+                    continue
+                fls=glob(f'{dr}\\{station}\\forecast*.pkl')
+                forecast0=[]
+                for fl in fls:
+                    forecast=load_forecast(fl)
+                    forecast0.append(forecast)
+                forecast0=merge_forecasts(forecast0)
 
-            # plt.show()
-            # print('')
+                # f,ax=plt.subplots(1,1)
+                # ax.plot(forecast0.iy,forecast0.y, 'b--', lw=2)
+
+                fls=glob(f'{dr}\\{station}\\forecast*.pkl')
+                if len(fls)==0:
+                    break    # break here
+                forecasts=[forecast0]
+                for fl in fls:
+                    forecast=load_forecast(fl)
+
+                    iy=forecast.iy
+                    for te in forecast.tes:
+                        inds=(iy>(te-14*_DAY))&(iy<(te+14*_DAY))
+                        forecast.df['training label'][inds]=forecast.df['training label'][inds]*0
+                    forecasts.append(forecast)
+
+                forecast=merge_forecasts(forecasts, priority='sample')
+                forecast.save(save_file)
+                # from random import shuffle
+                # shuffle(forecasts)
+                # forecast1=merge_forecasts(forecasts, priority='sample')
+                # f,ax=plt.subplots(1,1)
+                # ax.plot(forecast.iy,forecast.y, 'k-')
+                # ax.plot(forecast1.iy,forecast1.y, 'r-', lw=0.5)
+                # plt.show()
+                # for te in forecast.tes:
+                #     ax.axvline(te,color='r',linewidth=0.5,linestyle='--')
+
+                # forecast_compare=load_dataframe(f'{dr}\\_consensus_master_{station}.pkl')
+                # ax.plot(forecast_compare.index,forecast_compare['consensus'], 'g-')
+                
+                # for fcst in forecasts[1:]:
+                #     ax.plot(fcst.iy,fcst.y, 'r--', lw=1)
+
+                # plt.show()
+                # print('')
         
-    forecast=merge_forecasts(forecasts, priority='sample')
-
 def test_multivolcano_roc():
-    dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts\cve_VNSS_BELO_REF_AUH_CETU_GSTR_PVV_OKWR_SHW'
+    dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts\cve_WIZ'#cve_VNSS_BELO_REF_AUH_CETU_GSTR_PVV_OKWR_SHW'
     forecasts=[load_forecast(fl) for fl in glob(f'{dr}\\_forecast_*.pkl')]
+    #
+    # fcst=forecasts[0]
+    # am=fcst.alert_model(threshold=0.8)
+    # roc=fcst.roc()
+    # roc.plot()
+    #
     forecast=merge_forecasts(forecasts, priority='multi-volcano')
     roc=forecast.roc()
     roc.plot(xscale='linear')
@@ -527,9 +590,9 @@ def main():
     # test_single_data_forecast()
     # test_multi_data_forecast()
     # test_multi_volcano_forecast()
-    # test_forecast_conversion()
-    # test_forecast_merge()
-    test_multivolcano_roc()
+    test_forecast_conversion()
+    test_forecast_merge()
+    #test_multivolcano_roc()
 
     pass
 
