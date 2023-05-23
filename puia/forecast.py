@@ -179,6 +179,8 @@ class Forecast(object):
         # any remaining eruptions after alert windows have cleared must have been missed
         am.false_negative += len(tes)
         am.fraction_inalert=am.inalert/am.total_time
+
+        
         
         return am
     def roc(self, thresholds=None, save=None):
