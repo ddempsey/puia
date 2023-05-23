@@ -585,14 +585,26 @@ def test_multivolcano_roc():
     roc=forecast.roc()
     roc.plot(xscale='linear')
     print('')
-            
+           
+def test_multivolcano_fss():
+    dr=r'U:\Research\EruptionForecasting\eruptions\aardid\puia_rep\forecasts\cve_WIZ'#cve_VNSS_BELO_REF_AUH_CETU_GSTR_PVV_OKWR_SHW'
+    forecasts=[load_forecast(fl) for fl in glob(f'{dr}\\_forecast_*.pkl')]    
+    forecast=forecasts[0]
+    # roc=forecast.roc()
+    # roc.plot(xscale='linear')
+
+    fss=forecast.fss()
+    fss.plot()
+    print('')
+
 def main():
     # test_single_data_forecast()
     # test_multi_data_forecast()
     # test_multi_volcano_forecast()
-    test_forecast_conversion()
-    test_forecast_merge()
-    #test_multivolcano_roc()
+    # test_forecast_conversion()
+    # test_forecast_merge()
+    # test_multivolcano_roc()
+    test_multivolcano_fss()
 
     pass
 

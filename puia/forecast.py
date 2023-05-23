@@ -144,7 +144,7 @@ class Forecast(object):
         am.alert_durations=[np.diff(aw) for aw in am.alert_windows]
         
         # compute true/false positive/negative rates
-        tes=copy(self.tes)
+        tes=copy(list(np.sort(self.tes)))
         am.inalert=0.
 
         for t0,t1 in am.alert_windows:
@@ -179,16 +179,19 @@ class Forecast(object):
         # any remaining eruptions after alert windows have cleared must have been missed
         am.false_negative += len(tes)
         am.fraction_inalert=am.inalert/am.total_time
-
-        
-        
         return am
-    def roc(self, thresholds=None, save=None):
+    def roc(self, thresholds=None):
         if thresholds is None:
             thresholds=np.linspace(0,1,101)[::-1]
         else:
             thresholds=np.sort(thresholds)[::-1]
         return ROC(self, thresholds)
+    def fss(self, thresholds=None):
+        if thresholds is None:
+            thresholds=np.linspace(0,1,101)[::-1]
+        else:
+            thresholds=np.sort(thresholds)[::-1]
+        return FSS(self, thresholds)
     def _get_y(self):
         return self.df['consensus'].values
     y=property(_get_y)
@@ -236,6 +239,70 @@ class AlertModel(object):
             return True
         else:
             return False
+class FSS(object):
+    def __init__(self, fcst, thresholds):
+        self.thresholds=thresholds
+        self._setup(fcst)
+    def _setup(self, fcst):
+        self.alert_models=[fcst.alert_model(th) for th in self.thresholds]
+        lf_days=fcst.ilf*(fcst.iy[1]-fcst.iy[0]).total_seconds()/(24*3600)
+        df=copy(fcst.df)
+        self.fss=[]
+        # calculate alert model FSS for different thresholds
+        for am in self.alert_models:
+            if am.inalert == 0:# or not am.false_negative or not am.true_positive:
+                self.fss.append(-np.inf)
+                continue
+            rate_in=am.true_positive*lf_days/am.inalert
+            p_in=1.-np.exp(-rate_in)
+
+            rate_out=am.false_negative*lf_days/(am.total_time-am.inalert)
+            p_out=1.-np.exp(-rate_out)
+
+            df['am']=0*df['label']
+            for i0,i1 in am.alert_window_indices:
+                df['am'].iloc[i0:i1+1]=1
+
+            TP=np.sum((df['am']==1)&(df['label']==1))
+            FP=np.sum((df['am']==1)&(df['label']==0))
+            TN=np.sum((df['am']==0)&(df['label']==0))
+            FN=np.sum((df['am']==0)&(df['label']==1))
+
+            fss=(FP*np.log(1-p_in)+TP*np.log(p_in)+FN*np.log(p_out)+TN*np.log(1-p_out))/(FP+TP+FN+TN)
+            self.fss.append(fss)
+        
+        # calculate fixed probability FSS
+        rate0=len(fcst.tes)*lf_days/am.total_time
+        self.fss0=rate0*(rate0+np.log(rate0))-rate0
+
+        self.fss=(self.fss0-np.array(self.fss))/self.fss0
+        self.fss_max=np.max(self.fss)
+        self.threshold_max=self.thresholds[np.argmax(self.fss)]
+    def plot(self, save=None, reference=None, xscale='linear'):
+        ''' plot FSS curve
+
+            save - file name to save output
+            reference - other FSS curve(s) to plot. Can be single FSS object, or dictionary of FSS objects
+        '''
+        f,ax=plt.subplots(1,1)
+        ax.plot(self.thresholds, self.fss, 'k-')
+        ax.set_xlabel('warning threshold')
+        ax.set_ylabel('scaled forecast skill')
+
+        if reference is not None:
+            if type(reference) is ROC:
+                ax.plot(reference.thresholds, reference.fss, 'k:')
+            if type(reference) is dict:                
+                for k,c in zip(reference.keys(),['b','g','r','c','y','m']):
+                    v=reference[k]
+                    ax.plot(v.thresholds, v.fss, c+'-')
+            ax.legend()
+        
+        if save is not None:
+            plt.savefig(save, dpi=400)
+        else:            
+            plt.show()        
+
 class ROC(object):
     def __init__(self, fcst, thresholds):
         self.thresholds=thresholds
@@ -250,7 +317,7 @@ class ROC(object):
         self.number_eruptions=len(fcst.tes)
         self.auc=np.trapz(self.true_positive/self.number_eruptions, self.fraction_inalert)
         self.forecast_days=(fcst.iy[-1]-fcst.iy[0])/_DAY
-    def plot(self, save=None, reference=None):
+    def plot(self, save=None, reference=None, xscale='linear'):
         ''' plot ROC curve
 
             save - file name to save output
@@ -270,7 +337,9 @@ class ROC(object):
                     v=reference[k]
                     ax.plot(v.fraction_inalert*100, v.true_positive/v.number_eruptions*100, c+'-', label=k+f' ({1.-v.auc})')
             ax.legend()
-        ax.set_xscale('log')
+        
+        if xscale=='log':
+            ax.set_xscale('log')
 
         if save is not None:
             plt.savefig(save, dpi=400)
@@ -412,7 +481,7 @@ def merge_forecasts(forecasts, priority='last'):
         tess += fcst.tes
 
     forecasts[0].df=df.sort_index()
-    forecasts[0].tes=list(set(tess))
+    forecasts[0].tes=list(np.sort(set(tess)))
     
     return forecasts[0]
     
@@ -423,4 +492,6 @@ def load_forecast(fl):
 
         returns Forecast object
     '''
-    return load_dataframe(fl)
+    fcst=load_dataframe(fl)
+    fcst.tes=np.sort(fcst.tes)
+    return fcst
